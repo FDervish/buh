@@ -2,7 +2,9 @@
 
 #include <windows.h>
 
+#include "console.hpp"
 #include "game_state.hpp"
+#include "bink/bink.hpp"
 #include "particles/extend_effect_limits.hpp"
 #include "particles/extend_render_limits.hpp"
 #include "particles/particle_culling.hpp"
@@ -16,6 +18,8 @@ extern "C" BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID) {
         Buh::set_up_extend_render_limits();
         Buh::set_up_particle_culling_fix();
         Buh::set_up_particle_depth_sort();
+        Buh::set_up_console();
+        Buh::set_up_bink();
     }
     return TRUE;
 }

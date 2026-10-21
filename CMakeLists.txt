@@ -16,6 +16,11 @@ endif()
 
 add_library(buh MODULE
     src/buh.cpp
+    src/bink/bink.cpp
+    src/bink/bink.S
+    src/bink/bink_player.cpp
+    src/console.cpp
+    src/console.S
     src/game_state.cpp
     src/memory.cpp
     src/particles/extend_effect_limits.cpp
