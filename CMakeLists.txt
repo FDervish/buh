@@ -25,7 +25,7 @@ add_library(buh MODULE
 )
 
 target_compile_options(buh PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra -pedantic -Wold-style-cast>)
-target_link_options(buh PRIVATE -static -static-libgcc -static-libstdc++)
+target_link_options(buh PRIVATE -static -static-libgcc -static-libstdc++ -Wl,--exclude-all-symbols)
 
 # Chimera loads mods\*.dll
 set_target_properties(buh PROPERTIES PREFIX "" OUTPUT_NAME "buh")

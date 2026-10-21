@@ -16,7 +16,7 @@ namespace Buh {
             auto *base = reinterpret_cast<std::byte *>(GetModuleHandle(nullptr));
             auto *dos = reinterpret_cast<const IMAGE_DOS_HEADER *>(base);
             auto *nt = reinterpret_cast<const IMAGE_NT_HEADERS32 *>(base + dos->e_lfanew);
-            auto *section = IMAGE_FIRST_SECTION(nt);
+            auto *section = reinterpret_cast<const IMAGE_SECTION_HEADER *>(reinterpret_cast<const std::byte *>(&nt->OptionalHeader) + nt->FileHeader.SizeOfOptionalHeader);
             for(std::size_t i = 0; i < nt->FileHeader.NumberOfSections; i++, section++) {
                 if(section->Characteristics & IMAGE_SCN_MEM_EXECUTE) {
                     std::size_t size = section->Misc.VirtualSize ? section->Misc.VirtualSize : section->SizeOfRawData;
