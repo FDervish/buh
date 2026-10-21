@@ -1,0 +1,46 @@
+# buh
+
+A [Chimera](https://github.com/SnowyMouse/chimera) mod for Halo: Combat Evolved. Chimera loads every DLL in the
+game's `mods` folder after it has applied its own patches, and buh patches the game on top of that without touching
+Chimera itself.
+
+## Particles
+
+- **Limits:** particles 1024 → 16384 (moved out of the game state arena), effects 256 → 726, effect locations
+  512 → 1280, live particle systems 64 → 127.
+- **Heavy load:** per-frame vertex and index blocks 1023 → 4096, triangles 32768 → 65536, sprite batches 384 → 2048.
+  Past any of these Halo silently drops whole batches.
+- **Culling:** particles are no longer deleted after 15 undrawn frames, hidden by stale PVS and cluster tests, refused
+  at spawn outside the PVS, skipped below their size threshold, or capped at 11 screen-filling sprites per frame.
+  One-shot effects created off screen are no longer deleted at birth.
+- **Sorting:** particles within a batch are drawn back to front, so overlapping sprites stop swapping order.
+
+Each fix checks its signatures first and leaves the game alone if they aren't found.
+
+Interpolation: Chimera interpolates particles itself. Released versions size that buffer at a fixed 1024, so particles
+past the first 1024 update at the tick rate. A Chimera build that sizes it from the particle table interpolates all of
+them, with no change needed here.
+
+## Install
+
+Copy `buh.dll` into the `mods` folder next to `strings.dll` (create it if needed).
+
+## Build
+
+buh is a 32-bit DLL. With MSYS2, from a MINGW32 shell:
+
+```
+cmake -S . -B build -G Ninja
+cmake --build build
+```
+
+Cross-compiling from Linux:
+
+```
+cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-i686-w64-mingw32.cmake
+cmake --build build
+```
+
+## License
+
+GPL-3.0-only. Parts of buh are derived from Chimera.
