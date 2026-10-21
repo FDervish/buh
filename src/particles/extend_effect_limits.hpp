@@ -29,9 +29,11 @@ namespace Buh {
     static_assert(offsetof(DatumArray, current_size) == 0x2E);
 
     /**
-     * Raise Halo's particle, effect and particle system limits
+     * Raise Halo's particle, effect and particle system limits, and with an enlarged game state its particle system
+     * particle, decal and glow limits too
+     * @param large_game_state whether set_up_extend_game_state() moved the game state
      */
-    void set_up_extend_effect_limits() noexcept;
+    void set_up_extend_effect_limits(bool large_game_state) noexcept;
 }
 
 #endif

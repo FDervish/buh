@@ -16,6 +16,7 @@ endif()
 
 add_library(buh MODULE
     src/buh.cpp
+    src/game_state.cpp
     src/memory.cpp
     src/particles/extend_effect_limits.cpp
     src/particles/extend_effect_limits.S
