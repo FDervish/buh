@@ -184,7 +184,8 @@ can be driven, weapons picked up, and so on.
 has to change when the block moves (pointers, tag IDs, and offsets into bitmap, sound and model data). When a map
 loads, buh copies each pack into the free part of tag space (above the map's tag data and its BSPs, in the room
 Chimera's 64 MiB of tag space leaves), applies that list, and puts the pack's tags after the map's own, so the map's
-tags keep their indices. Pack models are added to the buffer Halo builds models from, and bitmap and sound data is
+tags keep their indices. If a map leaves too little room there, the packs go in memory of their own instead, and buh
+says so in the console; it's kept for the next map that needs it. Pack models are added to the buffer Halo builds models from, and bitmap and sound data is
 read from the pack file as Halo needs it.
 
 Saved games and checkpoints only load with the same packs, added in the same order. Sandboxed map scripts can't read

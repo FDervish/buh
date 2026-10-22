@@ -256,6 +256,30 @@ namespace Buh {
         return 0;
     }
 
+    // Where the packs go when tag space hasn't the room: memory of their own, kept for the next map that needs it.
+    // Nothing in a pack has to be in tag space, since every pointer in it is relocated to wherever it is. By the time
+    // the next map's tag data is read, Halo is done with the last map's tags, as it is with tag space.
+    static std::byte *own_room = nullptr;
+    static std::size_t own_room_size = 0;
+
+    static void release_own_room() noexcept {
+        if(own_room) {
+            VirtualFree(own_room, 0, MEM_RELEASE);
+            own_room = nullptr;
+            own_room_size = 0;
+        }
+    }
+
+    static std::uintptr_t take_own_room(std::size_t needed) noexcept {
+        if(own_room_size < needed) {
+            release_own_room();
+            auto size = (needed + 0xFFFF) & ~static_cast<std::size_t>(0xFFFF);
+            own_room = static_cast<std::byte *>(VirtualAlloc(nullptr, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+            own_room_size = own_room ? size : 0;
+        }
+        return reinterpret_cast<std::uintptr_t>(own_room);
+    }
+
     // Right after Halo reads the map's tag data, and before it caches where the tag array is
     extern "C" void buh_tag_data_loaded(std::byte *tag_data) noexcept {
         mounted_count = 0;
@@ -265,6 +289,7 @@ namespace Buh {
             pack.in_map = false;
         }
         if(packs->empty() || is_ui_map(loading_map_name())) {
+            release_own_room();
             return;
         }
 
@@ -279,17 +304,27 @@ namespace Buh {
         }
         if(raw > 0xFFFFFFFF - VIRTUAL_FILE_OFFSET) {
             console_error("buh: the tag packs have more than 2 GiB of bitmaps and sounds between them, so no packs this time");
+            release_own_room();
             return;
         }
         if(map_tags + pack_tags > MAXIMUM_TAGS || packs->size() > MAXIMUM_MOUNTED) {
             console_error(("buh: the map and its tag packs come to " + std::to_string(map_tags + pack_tags) + " tags, more than Halo can have, so no packs this time").c_str());
+            release_own_room();
             return;
         }
         auto array_size = (map_tags + pack_tags) * static_cast<std::uint32_t>(sizeof(Tag));
         auto room = find_room(header, blocks + array_size);
-        if(!room) {
-            console_error("buh: no room in tag space for the tag packs this time");
-            return;
+        if(room) {
+            release_own_room();
+        }
+        else {
+            room = take_own_room(blocks + array_size);
+            if(!room) {
+                console_error("buh: no memory for the tag packs this time");
+                return;
+            }
+            auto mib = std::to_string((blocks + array_size + 0xFFFFF) / 0x100000);
+            console_print(("buh: tag space has no room for the tag packs, so they're in " + mib + " MiB of memory of their own").c_str());
         }
 
         // Each pack's block, relocated to where it is now
