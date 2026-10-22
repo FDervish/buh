@@ -4,7 +4,7 @@
 
 .text
 
-;# Stands in for render_window's call to interface_draw_screen(): the HUD draws first, then the video
+;# Stands in for render_window's call to interface_draw_screen(): the HUD draws first, then buh's things
 .globl _buh_interface_draw_asm
 _buh_interface_draw_asm:
     call dword ptr [_buh_interface_draw]

@@ -67,4 +67,26 @@ namespace Buh {
         auto relative = reinterpret_cast<std::uintptr_t>(target) - (reinterpret_cast<std::uintptr_t>(call) + 5);
         overwrite(call + 1, static_cast<std::uint32_t>(relative));
     }
+
+    std::byte *branch_target(const std::byte *branch) noexcept {
+        std::int32_t relative;
+        std::memcpy(&relative, branch + 1, sizeof(relative));
+        return const_cast<std::byte *>(branch) + 5 + relative;
+    }
+
+    static void write_branch(std::uint8_t opcode, std::byte *at, const void *target, std::size_t length) noexcept {
+        std::vector<std::uint8_t> code(length, 0x90);
+        code[0] = opcode;
+        auto relative = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(target) - (reinterpret_cast<std::uintptr_t>(at) + 5));
+        std::memcpy(code.data() + 1, &relative, sizeof(relative));
+        overwrite(at, code.data(), length);
+    }
+
+    void write_jump(std::byte *at, const void *target, std::size_t length) noexcept {
+        write_branch(0xE9, at, target, length);
+    }
+
+    void write_call(std::byte *at, const void *target, std::size_t length) noexcept {
+        write_branch(0xE8, at, target, length);
+    }
 }
