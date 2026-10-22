@@ -1,0 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
+
+// The loading screen's background, kept gray since the shader only reads one channel
+LOADING_SCREEN_BACKGROUND RCDATA "loading_screen_background.png"

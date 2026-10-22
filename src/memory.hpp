@@ -45,6 +45,17 @@ namespace Buh {
      * Point a call rel32 at a different function.
      */
     void retarget_call(std::byte *call, const void *target) noexcept;
+
+    /**
+     * Where a call or jmp rel32 goes
+     */
+    std::byte *branch_target(const std::byte *branch) noexcept;
+
+    /**
+     * Overwrite length bytes (at least 5) with a jmp or call rel32 to target, then nops
+     */
+    void write_jump(std::byte *at, const void *target, std::size_t length) noexcept;
+    void write_call(std::byte *at, const void *target, std::size_t length) noexcept;
 }
 
 #endif
