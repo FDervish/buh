@@ -76,6 +76,39 @@ namespace Buh {
         }
     }
 
+    double sound_chain_seconds(const std::byte *sound, const std::byte *permutation, bool (*stop)(const std::byte *permutation)) noexcept {
+        double seconds = sound_permutation_seconds(sound, permutation);
+
+        // The pitch range it's one of, whose permutations the chain goes through
+        auto pitch_range_count = block_count(sound + SOUND_PITCH_RANGES_OFFSET);
+        auto *pitch_ranges = block_elements(sound + SOUND_PITCH_RANGES_OFFSET);
+        if(!readable(pitch_ranges, pitch_range_count * PITCH_RANGE_SIZE)) {
+            return seconds;
+        }
+        for(std::size_t r = 0; r < pitch_range_count; r++) {
+            auto *pitch_range = pitch_ranges + r * PITCH_RANGE_SIZE;
+            auto permutation_count = block_count(pitch_range + PITCH_RANGE_PERMUTATIONS_OFFSET);
+            auto *permutations = block_elements(pitch_range + PITCH_RANGE_PERMUTATIONS_OFFSET);
+            if(permutation < permutations || permutation >= permutations + permutation_count * PERMUTATION_SIZE || !readable(permutations, permutation_count * PERMUTATION_SIZE)) {
+                continue;
+            }
+            auto *piece = permutation;
+            for(std::size_t links = 0; links < permutation_count; links++) {
+                auto next = read<std::int16_t>(piece + PERMUTATION_NEXT_OFFSET);
+                if(next < 0 || static_cast<std::size_t>(next) >= permutation_count) {
+                    break;
+                }
+                piece = permutations + next * PERMUTATION_SIZE;
+                if(stop && stop(piece)) {
+                    break;
+                }
+                seconds += sound_permutation_seconds(sound, piece);
+            }
+            break;
+        }
+        return seconds;
+    }
+
     const std::byte *sound_of_permutation(const std::byte *permutation) noexcept {
         auto *tag = get_tag(read<std::uint32_t>(permutation + PERMUTATION_SOUND_TAG_OFFSET));
         return tag && tag->primary_class == TAG_CLASS_SOUND ? tag->data : nullptr;
@@ -100,17 +133,7 @@ namespace Buh {
             }
             // The first actual_count permutations are the sound's; long ones carry on in chained permutations
             for(std::size_t p = 0; p < permutation_count && static_cast<std::int16_t>(p) < actual_count; p++) {
-                double seconds = 0.0;
-                std::size_t links = 0;
-                for(auto index = p; index < permutation_count && links < permutation_count; links++) {
-                    auto *permutation = permutations + index * PERMUTATION_SIZE;
-                    seconds += sound_permutation_seconds(sound, permutation);
-                    auto next = read<std::int16_t>(permutation + PERMUTATION_NEXT_OFFSET);
-                    if(next < 0) {
-                        break;
-                    }
-                    index = static_cast<std::size_t>(next);
-                }
+                auto seconds = sound_chain_seconds(sound, permutations + p * PERMUTATION_SIZE);
                 char line[128];
                 std::snprintf(line, sizeof(line), "pitch range %zu, permutation %zu (%.31s): %.2f s", r, p, reinterpret_cast<const char *>(permutations + p * PERMUTATION_SIZE), seconds);
                 console_print(line);

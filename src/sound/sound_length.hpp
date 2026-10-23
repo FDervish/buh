@@ -13,6 +13,12 @@ namespace Buh {
     double sound_permutation_seconds(const std::byte *sound, const std::byte *permutation) noexcept;
 
     /**
+     * Seconds of audio from one permutation of a sound tag on through the permutations a long sound is chained into
+     * after it, stopping before the first one stop() is true for (if there's a stop())
+     */
+    double sound_chain_seconds(const std::byte *sound, const std::byte *permutation, bool (*stop)(const std::byte *permutation) = nullptr) noexcept;
+
+    /**
      * The sound tag a permutation belongs to, or nullptr
      */
     const std::byte *sound_of_permutation(const std::byte *permutation) noexcept;

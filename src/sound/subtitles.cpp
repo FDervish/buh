@@ -97,18 +97,33 @@ namespace Buh {
         }
     }
 
+    // A permutation's subtitles, if it has any
+    static const wchar_t *subtitle_data(const std::byte *permutation, std::uint32_t &size) noexcept {
+        size = *reinterpret_cast<const std::uint32_t *>(permutation + PERMUTATION_SUBTITLE_DATA_OFFSET);
+        auto *data = *reinterpret_cast<const wchar_t * const *>(permutation + PERMUTATION_SUBTITLE_DATA_OFFSET + 0xC);
+        return size >= sizeof(wchar_t) && readable(data, size) ? data : nullptr;
+    }
+
+    static bool has_subtitles(const std::byte *permutation) noexcept {
+        std::uint32_t size;
+        return subtitle_data(permutation, size) != nullptr;
+    }
+
     extern "C" void buh_sound_enqueued(const std::byte *permutation) noexcept {
         if(!enabled || !permutation) {
             return;
         }
-        auto size = *reinterpret_cast<const std::uint32_t *>(permutation + PERMUTATION_SUBTITLE_DATA_OFFSET);
-        auto *data = *reinterpret_cast<const wchar_t * const *>(permutation + PERMUTATION_SUBTITLE_DATA_OFFSET + 0xC);
+        std::uint32_t size;
+        auto *data = subtitle_data(permutation, size);
         auto *sound = sound_of_permutation(permutation);
-        if(size < sizeof(wchar_t) || !readable(data, size) || !sound) {
+        if(!data || !sound) {
             return;
         }
         std::wstring text(data, std::find(data, data + size / sizeof(wchar_t), L'\0'));
-        auto seconds = sound_permutation_seconds(sound, permutation);
+
+        // A long sound plays as a chain of permutations. Its subtitles stay up through the ones after it that have
+        // none of their own, so text on the first covers all of it, and text on a later one takes over from there.
+        auto seconds = sound_chain_seconds(sound, permutation, has_subtitles);
         add_subtitle(text, seconds > 0.0 ? seconds : DEFAULT_SECONDS, permutation);
     }
 
