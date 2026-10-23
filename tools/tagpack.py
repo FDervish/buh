@@ -11,7 +11,13 @@ buh then only has to copy the block and apply that list.
 
     tagpack.py armory.map -o armory.tagpack                 every tag the scenario's object palettes use
     tagpack.py bloodgulch.map -o hog.tagpack --tag vehicles\\warthog\\mp_warthog
+    tagpack.py hd.map -o hd.tagpack --tag characters\\cyborg\\bitmaps\\ --override
     tagpack.py armory.tagpack --info
+
+The tags it was asked for, and everything in their folders, are the pack's own: buh adds them to the map, or with
+--override, puts them in place of the map's tags with the same paths. The rest (the stock effects, sounds and so on
+they use) link to the map's own copies when it has them. --own sets the pack's folders instead, and --no-link copies
+everything.
 
 Tag layouts come from Invader's tag definitions in definitions/.
 """
@@ -25,9 +31,15 @@ import sys
 TAG_DATA_ADDRESS = 0x40440000
 NULL_ID = 0xFFFFFFFF
 PACK_MAGIC = b'BUHP'
-PACK_VERSION = 1
+PACK_VERSION = 2
 PACK_HEADER = struct.Struct('<4sI2I5I3I5I32s')
-PACK_TAG = struct.Struct('<5I')
+PACK_TAG = struct.Struct('<6I')
+PACK_TAG_V1 = struct.Struct('<5I')
+
+# A pack tag's flags: buh links it to the map's tag with the same class and path (or an earlier pack's) when there is
+# one, or puts it in that tag's place
+TAG_LINK = 1
+TAG_OVERRIDE = 2
 
 # Invader's class names and Halo's four character codes
 CLASS_CODES = {
@@ -284,7 +296,9 @@ class PackBuilder:
             'vertex count', 'vertex pointer', 'vertex offset')}
         self.order = []
         self.local = {}
+        self.roots = set()
         self.entries = []
+        self.flags = []
         self.warnings = []
         self.resource_maps = {}
 
@@ -484,7 +498,9 @@ class PackBuilder:
 
     def build(self, roots):
         for tag_id in roots:
-            self.reference(tag_id)
+            local = self.reference(tag_id)
+            if local is not None:
+                self.roots.add(local)
         done = 0
         while done < len(self.order):
             tag = self.order[done]
@@ -502,9 +518,24 @@ class PackBuilder:
             self.vertices.append(0)
         self.model = bytes(self.vertices + self.indices)
         self.vertex_size, self.index_size = len(self.vertices), len(self.indices)
+        self.flags = [0] * len(self.order)
+
+    def own_folders(self):
+        """The folders of the tags the pack was made for"""
+        return sorted({folder_of(self.order[local]['path']) for local in self.roots})
+
+    def set_flags(self, own_folders, override, link):
+        """The tags the pack was made for and everything in its own folders are its own: added to the map, or with
+        override, put in place of the map's tags with the same paths. The rest link to the map's."""
+        self.flags = []
+        for local, tag in enumerate(self.order):
+            path = tag['path'].lower()
+            own = local in self.roots or any(path.startswith(folder) for folder in own_folders)
+            self.flags.append((TAG_OVERRIDE if override else 0) if own else (TAG_LINK if link else 0))
 
     def write(self, path, name):
-        tags = b''.join(PACK_TAG.pack(*classes, path_offset, data_offset) for classes, path_offset, data_offset in self.entries)
+        tags = b''.join(PACK_TAG.pack(*classes, path_offset, data_offset, flags)
+                        for (classes, path_offset, data_offset), flags in zip(self.entries, self.flags))
         relocations = b''.join([
             struct.pack(f'<{len(self.pointers)}I', *self.pointers),
             b''.join(struct.pack('<2I', at, local) for at, local in self.tag_ids),
@@ -536,10 +567,15 @@ class Pack:
         (magic, version, self.tag_count, self.tag_data_size, pointers, tag_ids, file_offsets, model_vertices,
          model_indices, self.raw_size, self.vertex_size, self.index_size, tags_at, data_at, relocations_at, raw_at,
          model_at, name) = fields
-        if magic != PACK_MAGIC or version != PACK_VERSION:
-            raise PackError(f'{path} is not a version {PACK_VERSION} tag pack')
+        if magic != PACK_MAGIC or version not in (1, PACK_VERSION):
+            raise PackError(f'{path} is not a version 1 or {PACK_VERSION} tag pack')
+        self.version = version
         self.name = name.rstrip(b'\0').decode('latin1')
-        self.tags = [PACK_TAG.unpack_from(data, tags_at + i * PACK_TAG.size) for i in range(self.tag_count)]
+        # (primary class, secondary class, tertiary class, path, data, flags); version 1 has no flags
+        if version == 1:
+            self.tags = [PACK_TAG_V1.unpack_from(data, tags_at + i * PACK_TAG_V1.size) + (0,) for i in range(self.tag_count)]
+        else:
+            self.tags = [PACK_TAG.unpack_from(data, tags_at + i * PACK_TAG.size) for i in range(self.tag_count)]
         self.tag_data = data[data_at:data_at + self.tag_data_size]
         at = relocations_at
         self.pointers = list(struct.unpack_from(f'<{pointers}I', data, at)); at += pointers * 4
@@ -556,6 +592,20 @@ class Pack:
 
     def tag_class(self, i):
         return struct.pack('>I', self.tags[i][0]).decode('latin1')
+
+    def flags(self, i):
+        return self.tags[i][5]
+
+
+def folder_of(path):
+    """A tag path's folder, as own folders are compared: lower case, ending in a backslash"""
+    path = path.replace('/', '\\').lower()
+    return path[:path.rfind('\\') + 1]
+
+
+def as_folder(folder):
+    folder = folder.replace('/', '\\').lower()
+    return folder if folder.endswith('\\') else folder + '\\'
 
 
 def palette_roots(cache_map, definitions):
@@ -582,8 +632,15 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description='Make a buh tag pack out of a Halo Custom Edition map.')
     parser.add_argument('input', help='the map to take tags from, or a tag pack with --info')
     parser.add_argument('-o', '--output', help='the tag pack to write (default: the map\'s name with .tagpack)')
-    parser.add_argument('--tag', action='append', default=[], help='take this tag (by path, any class) and what it uses '
-                        'instead of the scenario\'s palettes; can be given more than once')
+    parser.add_argument('--tag', action='append', default=[], help='take this tag (by path, any class), or every tag in '
+                        'this folder (a path ending in \\), and what they use instead of the scenario\'s palettes; can be '
+                        'given more than once')
+    parser.add_argument('--own', action='append', default=[], help='the pack\'s own folder, instead of the folders of the '
+                        'tags it\'s made for; can be given more than once')
+    parser.add_argument('--override', action='store_true', help='put the pack\'s own tags in place of the map\'s tags '
+                        'with the same paths, instead of adding them')
+    parser.add_argument('--no-link', action='store_true', help='copy every tag, instead of linking the ones outside '
+                        'the pack\'s own folders to the map\'s')
     parser.add_argument('--maps', help='where bitmaps.map, sounds.map and loc.map are (default: next to the map)')
     parser.add_argument('--info', action='store_true', help='list what a tag pack holds')
     parser.add_argument('--definitions', default=str(pathlib.Path(__file__).parent / 'definitions'), help=argparse.SUPPRESS)
@@ -592,10 +649,14 @@ def main(argv=None):
     try:
         if args.info:
             pack = Pack(args.input)
-            print(f'{pack.name}: {pack.tag_count} tags, {pack.tag_data_size / 2**20:.2f} MiB of tag data, '
+            linked = sum(1 for i in range(pack.tag_count) if pack.flags(i) & TAG_LINK)
+            overriding = sum(1 for i in range(pack.tag_count) if pack.flags(i) & TAG_OVERRIDE)
+            print(f'{pack.name}: {pack.tag_count} tags ({pack.tag_count - linked} its own, {overriding} of them in place of '
+                  f'the map\'s, and {linked} linking to the map\'s), {pack.tag_data_size / 2**20:.2f} MiB of tag data, '
                   f'{pack.raw_size / 2**20:.2f} MiB of bitmaps and sounds, {(pack.vertex_size + pack.index_size) / 2**20:.2f} MiB of models')
             for i in range(pack.tag_count):
-                print(f'  {pack.path(i)}.{pack.tag_class(i).strip()}')
+                how = ' (links)' if pack.flags(i) & TAG_LINK else ' (in place of the map\'s)' if pack.flags(i) & TAG_OVERRIDE else ''
+                print(f'  {pack.path(i)}.{pack.tag_class(i).strip()}{how}')
             return 0
 
         definitions = Definitions(args.definitions)
@@ -603,7 +664,12 @@ def main(argv=None):
         if args.tag:
             roots = []
             for wanted in args.tag:
-                found = [tag['id'] for tag in cache_map.tags if tag['path'].lower() == wanted.replace('/', '\\').lower()]
+                wanted_path = wanted.replace('/', '\\').lower()
+                if wanted_path.endswith('\\'):
+                    found = [tag['id'] for tag in cache_map.tags
+                             if tag['path'].lower().startswith(wanted_path) and tag['class'] not in EXCLUDED_CLASSES]
+                else:
+                    found = [tag['id'] for tag in cache_map.tags if tag['path'].lower() == wanted_path]
                 if not found:
                     raise PackError(f'{wanted} isn\'t in {cache_map.path.name}')
                 roots.extend(found)
@@ -613,6 +679,8 @@ def main(argv=None):
                 raise PackError('the scenario\'s palettes are empty, so there is nothing to take (or use --tag)')
         builder = PackBuilder(definitions, cache_map, args.maps or cache_map.path.parent)
         builder.build(roots)
+        own_folders = [as_folder(folder) for folder in args.own] if args.own else builder.own_folders()
+        builder.set_flags(own_folders, args.override, not args.no_link)
         output = args.output or cache_map.path.with_suffix('.tagpack')
         builder.write(output, cache_map.name)
         for warning in builder.warnings:
@@ -620,9 +688,14 @@ def main(argv=None):
         classes = {}
         for tag in builder.order:
             classes[tag['class'].strip()] = classes.get(tag['class'].strip(), 0) + 1
+        linked = builder.flags.count(TAG_LINK)
+        own = len(builder.order) - linked
         print(f'{output}: {len(builder.order)} tags ({", ".join(f"{n} {c}" for c, n in sorted(classes.items()))}), '
               f'{len(builder.blob) / 2**20:.2f} MiB of tag data, {len(builder.raw) / 2**20:.2f} MiB of bitmaps and sounds, '
               f'{len(builder.model) / 2**20:.2f} MiB of models')
+        goes = 'in place of the map\'s tags with the same paths' if args.override else 'added to the map'
+        print(f'  its own ({", ".join(own_folders) or "every folder"}): {own}, {goes}; '
+              f'the other {linked} link to the map\'s when it has them')
         return 0
     except PackError as error:
         print(f'error: {error}', file=sys.stderr)
