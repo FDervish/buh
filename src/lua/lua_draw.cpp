@@ -343,26 +343,30 @@ namespace Buh {
 
     // ---------------------------------------------------------------- frames
 
+    // What scripts drew since the HUD was last drawn, drawn once and then gone, so it can't pile up into something more
+    // opaque whether or not the frame's present is seen
     static void draw_queued(IDirect3DDevice9 *device, double) noexcept {
         if(queued_shapes->empty()) {
             return;
         }
-        if(!state_block && device->CreateStateBlock(D3DSBT_ALL, &state_block) < 0) {
+        if(state_block || device->CreateStateBlock(D3DSBT_ALL, &state_block) >= 0) {
+            D3DVIEWPORT9 viewport;
+            device->GetViewport(&viewport);
+            state_block->Capture();
+            set_image_states(device);
+            set_shape_states(device);
+            for(auto &queued : *queued_shapes) {
+                draw_shape(device, viewport, queued.shape, queued.x, queued.y, queued.rotation, 1.0F);
+            }
+            state_block->Apply();
+        }
+        else {
             state_block = nullptr;
-            return;
         }
-        D3DVIEWPORT9 viewport;
-        device->GetViewport(&viewport);
-        state_block->Capture();
-        set_image_states(device);
-        set_shape_states(device);
-        for(auto &queued : *queued_shapes) {
-            draw_shape(device, viewport, queued.shape, queued.x, queued.y, queued.rotation, 1.0F);
-        }
-        state_block->Apply();
+        queued_shapes->clear();
     }
 
-    // Once the frame's done, what scripts drew for it goes
+    // Once the frame's done, what scripts drew for it goes, drawn or not (in a frame without the HUD)
     static void end_frame(IDirect3DDevice9 *) noexcept {
         queued_shapes->clear();
         clear_queued_world_shapes();

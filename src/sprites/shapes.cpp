@@ -706,6 +706,9 @@ namespace Buh {
             state_block->Apply();
         }
 
+        // What scripts drew is drawn once, so it can't pile up into something more opaque
+        queued_world_shapes->clear();
+
         // Shapes on objects that have gone go with them
         for(auto shape = world_shapes->begin(); shape != world_shapes->end();) {
             float origin[3];

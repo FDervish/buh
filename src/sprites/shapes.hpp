@@ -97,8 +97,8 @@ namespace Buh {
     void clear_world_shapes() noexcept;
 
     /**
-     * A shape in the world for the next frame drawn only, as scripts draw: put up again each frame, and let go of with
-     * clear_queued_world_shapes() once the frame's done
+     * A shape in the world for the next frame drawn only, as scripts draw: put up again each frame, drawn once the next
+     * time the world is and then let go of, or sooner with clear_queued_world_shapes()
      */
     void queue_world_shape(const WorldShape &shape) noexcept;
     void clear_queued_world_shapes() noexcept;
