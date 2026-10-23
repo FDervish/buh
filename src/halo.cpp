@@ -9,11 +9,23 @@
 #define TAG_DATA_ADDRESS 0x40440000
 #define TAG_SPACE_SIZE 0x4000000
 
+// The object table: its slot count and its slots, each a salt and the object
+#define TABLE_SIZE 0x2E
+#define TABLE_ELEMENTS 0x34
+#define OBJECT_SLOT_SIZE 0xC
+#define OBJECT_SLOT_OBJECT 0x8
+
+// An object's origin, its bounding sphere's centre, and the object it's attached to
+#define OBJECT_POSITION 0x5C
+#define OBJECT_CENTER 0xA0
+#define OBJECT_PARENT 0x11C
+
 namespace Buh {
     static IDirect3DDevice9 **device = nullptr;
     static std::uint8_t **game_time_globals = nullptr;
     static const std::uint8_t *console = nullptr;
     static const std::int16_t *server_type = nullptr;
+    static const std::byte *const *object_table = nullptr;
 
     struct TagDataHeader {
         Tag *tag_array;
@@ -56,6 +68,33 @@ namespace Buh {
 
     bool game_time_stopped() noexcept {
         return singleplayer() && (game_paused() || console_open());
+    }
+
+    bool object_position(std::uint32_t object, float (&position)[3]) noexcept {
+        auto *table = object_table ? *object_table : nullptr;
+        if(!table || object == 0xFFFFFFFF) {
+            return false;
+        }
+        auto index = object & 0xFFFF;
+        std::uint16_t size;
+        std::memcpy(&size, table + TABLE_SIZE, sizeof(size));
+        if(index >= size) {
+            return false;
+        }
+        const std::byte *slots;
+        std::memcpy(&slots, table + TABLE_ELEMENTS, sizeof(slots));
+        auto *slot = slots + index * OBJECT_SLOT_SIZE;
+        std::uint16_t salt;
+        const std::byte *datum;
+        std::memcpy(&salt, slot, sizeof(salt));
+        std::memcpy(&datum, slot + OBJECT_SLOT_OBJECT, sizeof(datum));
+        if(salt != object >> 16 || !datum) {
+            return false;
+        }
+        std::uint32_t parent;
+        std::memcpy(&parent, datum + OBJECT_PARENT, sizeof(parent));
+        std::memcpy(position, datum + (parent == 0xFFFFFFFF ? OBJECT_POSITION : OBJECT_CENTER), sizeof(position));
+        return true;
     }
 
     bool in_tag_space(const void *pointer) noexcept {
@@ -126,6 +165,12 @@ namespace Buh {
         auto *time_globals = find_signature({ 0x8B, 0x15, -1, -1, -1, -1, 0x8A, 0x42, 0x02, 0x84, 0xC0, 0x75, 0x22, 0x8B, 0x0D });
         auto *console_enabled = find_signature({ 0xA0, -1, -1, -1, -1, 0x84, 0xC0, 0x74, 0x28, 0xA0, -1, -1, -1, -1, 0x84, 0xC0, 0x75, 0x1F, 0x57 });
         auto *server = find_signature({ 0x0F, 0xBF, 0x2D, -1, -1, -1, -1, 0xE8, -1, -1, -1, -1, 0x39, 0x1D, -1, -1, -1, -1, 0x75, 0x05 });
+        // mov ecx, [object table]; mov edx, [ecx + 0x34]; and eax, 0xFFFF; lea eax, [eax + eax * 2];
+        // mov eax, [edx + eax * 4 + 8]; cmp byte [eax + 0x2A3], 0x1C
+        auto *objects = find_signature({ 0x8B, 0x0D, -1, -1, -1, -1, 0x8B, 0x51, 0x34, 0x25, 0xFF, 0xFF, 0x00, 0x00, 0x8D, 0x04, 0x40, 0x8B, 0x44, 0x82, 0x08, 0x80, 0xB8, 0xA3, 0x02, 0x00, 0x00, 0x1C });
+        if(objects) {
+            object_table = read_address<const std::byte *const>(objects + 2);
+        }
         if(halo_player) {
             device = read_address<IDirect3DDevice9 *>(halo_player + 0x29);
         }

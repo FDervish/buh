@@ -82,7 +82,9 @@ add_library(buh MODULE
     src/sound/sound_length.cpp
     src/sound/subtitles.cpp
     src/sound/subtitles.S
+    src/lua/lua_draw.cpp
     src/sprites/image.cpp
+    src/sprites/shapes.cpp
     src/sprites/sprites.cpp
     src/text/text.cpp
     src/text/text.S

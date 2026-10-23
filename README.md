@@ -75,6 +75,76 @@ game folder.
 
 Animations, fades and moves follow the game's time like videos do.
 
+## Shapes
+
+Rectangles, lines, quads and circles on the HUD, and lines, boxes and circles in the world. They stay up until
+they're replaced, removed or their time runs out, so a script only has to send one when something about it changes,
+not every frame.
+
+**On the HUD**, in the same order as sprites (one added after another draws over it), placed like them in fractions
+of the screen from the top left:
+
+- `buh_rect <name> <x> <y> <width> <height> [options]`, and `outline [thickness]`, `round <radius>` for rounded
+  corners
+- `buh_line <name> <x1> <y1> <x2> <y2> [options]`
+- `buh_quad <name> <x1> <y1> <x2> <y2> <x3> <y3> <x4> <y4> [options]`
+- `buh_circle <name> <x> <y> <radius> [options]`, and `outline [thickness]`, `arc <from> <to>` (degrees clockwise
+  from the top) for an arc, or filled, a slice. A progress ring is `outline 6 arc 0 270`.
+
+A circle's radius and a rectangle's corners are fractions of the screen's height, so they stay round; thicknesses are
+pixels. Plain rectangles are pixel-sharp, and slanted or curved edges are smoothed over a pixel. Options for any of
+them:
+
+- `color <r> <g> <b>` (0 to 1) or `color #rrggbb` (`#rrggbbaa` with alpha); white by default
+- `gradient <color>`: to this colour, top to bottom on a rectangle, start to end on a line or an outlined arc, the
+  first two corners to the last two on a quad, and middle to edge on a filled circle
+- `thickness <pixels>`: lines are 2 pixels by default
+- `opacity`, `time`, `fade`, `move` and `rotate`, as for sprites
+
+**In the world**, at world coordinates. They're drawn once Halo has drawn the world and before the HUD, with the
+camera and depth buffer the world was just drawn with, so whatever is in front of them hides them, and the HUD goes on
+top.
+
+- `buh_line_3d <name> <x1> <y1> <z1> <x2> <y2> <z2> [options]`
+- `buh_box_3d <name> <x> <y> <z> <width> <length> <height> [options]`: its edges, centred on x, y, z
+- `buh_circle_3d <name> <x> <y> <z> <radius> [options]`: lying flat around x, y, z; `fill` fills it
+
+Options: `color` and `gradient` (start to end; bottom to top on a box; middle to edge filled), `thickness` (pixels,
+so they stay visible far away), `through_walls`, `on <object>` (the coordinates are then relative to that object, and
+the shape follows it and goes when it does), `opacity`, `time` and `fade`. An object's position is its origin, or
+its centre while it's in a seat or being held.
+
+`buh_sprite_remove <name>` and `buh_sprite_clear` take shapes away too. A name is one thing: putting a shape up
+replaces any sprite or shape by that name, on the HUD or in the world.
+
+**In Chimera's Lua scripts**, buh adds drawing functions that draw for the frame they're called in, the way
+`draw_text` does: call them from the `preframe` callback every frame something should show.
+
+- `draw_rectangle(left, top, width, height, a, r, g, b [, options])`
+- `draw_line(x1, y1, x2, y2, thickness, a, r, g, b [, options])`
+- `draw_quad(x1, y1, x2, y2, x3, y3, x4, y4, a, r, g, b [, options])`
+- `draw_circle(x, y, radius, a, r, g, b [, options])`
+- `draw_line_3d(x1, y1, z1, x2, y2, z2, thickness, a, r, g, b [, through_walls])`
+- `draw_box_3d(x, y, z, width, length, height, thickness, a, r, g, b [, options])`
+- `draw_circle_3d(x, y, z, radius, thickness, a, r, g, b [, options])`
+- `world_to_screen(x, y, z)`: where a point in the world is on the screen, and its depth (0 at the camera to 1 at
+  the far plane), from the camera the last frame was drawn with; nil if it's behind it
+
+On the screen they're in `draw_text`'s 640 by 480, whatever its shape, with radii and thicknesses in 480ths of its
+height. Colours are alpha, red, green and blue from 0 to 1, as `draw_text` takes them. `options` is a table of any
+of `outline` (a thickness, or `true`), `round` (a radius for a rectangle's corners), `arc` (`{ from, to }` for a
+circle), `gradient` (`{ a, r, g, b }`), `rotate` (degrees), `through_walls` and `fill` (for a circle in the world):
+
+```lua
+draw_rectangle(20, 440, 200 * shield, 12, 0.9, 0.3, 0.65, 1, { round = 4, gradient = { 0.9, 0.6, 0.85, 1 } })
+draw_circle(320, 240, 30, 1, 1, 1, 1, { outline = 3, arc = { 0, 360 * progress } })
+draw_circle_3d(x, y, z, 0.5, 2, 0.8, 0.2, 1, 0.4)
+```
+
+Chimera exports its Lua, and makes each script's Lua with one call that opens its libraries; buh points that call at
+itself and adds these once they're open, through Chimera's own Lua. A Chimera build that doesn't export its Lua
+gets none of them (the commands above still work), and one that has functions by these names keeps its own.
+
 ## Audio
 
 Sound files (wav, mp3, flac or ogg), played with [SoLoud](https://solhsa.com/soloud/) rather than Halo's sound system.

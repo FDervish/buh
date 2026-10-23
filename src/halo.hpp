@@ -28,6 +28,13 @@ namespace Buh {
      */
     bool game_time_stopped() noexcept;
 
+    /**
+     * Where an object is in the world: its origin, or its centre while it's attached to another object (in a seat, or
+     * held), when its origin is relative to that object
+     * @return false if there's no such object
+     */
+    bool object_position(std::uint32_t object, float (&position)[3]) noexcept;
+
     #define TAG_CLASS_BITMAP 0x6269746D
     #define TAG_CLASS_FONT 0x666F6E74
     #define TAG_CLASS_GLOBALS 0x6D617467

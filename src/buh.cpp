@@ -21,6 +21,8 @@
 #include "render.hpp"
 #include "sound/sound_length.hpp"
 #include "sound/subtitles.hpp"
+#include "lua/lua_draw.hpp"
+#include "sprites/shapes.hpp"
 #include "sprites/sprites.hpp"
 #include "text/text.hpp"
 
@@ -45,9 +47,13 @@ extern "C" BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID) {
         Buh::set_up_tag_packs();
         Buh::set_up_loading_screen();
 
+        // Drawn in the world before the HUD
+        Buh::set_up_shapes();
+
         // Drawn after the HUD in this order
         Buh::set_up_bink();
         Buh::set_up_sprites();
+        Buh::set_up_lua_drawing();
         Buh::set_up_subtitles();
 
         Buh::set_up_sound_length();
