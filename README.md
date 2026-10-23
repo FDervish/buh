@@ -263,7 +263,8 @@ GPL-3.0-only. Some of buh's code and assets are derived from other GPL-3.0-only 
 
 The loading screen's tone is Xbox Halo's own, from its loading screen.
 
-[SoLoud](https://github.com/jarikomppa/soloud) 20200207 is in `ext/soloud`, unmodified, under the zlib/libpng
-license (`ext/soloud/LICENSE`).
+[SoLoud](https://github.com/jarikomppa/soloud) 20200207 is in `ext/soloud`, under the zlib/libpng license
+(`ext/soloud/LICENSE`). Its WASAPI backend is altered so surround devices get sound (the top of
+`soloud_wasapi.cpp` says how); the rest is unmodified.
 
 `tools/definitions` holds [Invader](https://github.com/SnowyMouse/invader)'s tag definitions, GPL-3.0.

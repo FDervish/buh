@@ -251,7 +251,17 @@ namespace Buh {
 
     // Once a frame: the tone along with the loading screen
     static void update_tone() noexcept {
-        if(tone_follows_frames && enabled && *halo_screen.state != 0) {
+        bool up = enabled && *halo_screen.state != 0;
+        if(!tone_follows_frames) {
+            // Nothing would stop it once the loading screen is down, so there's none
+            static bool said = false;
+            if(up && !said) {
+                said = true;
+                console_error("buh: the loading screen's tone can't play with this haloce.exe");
+            }
+            return;
+        }
+        if(up) {
             update_loading_tone(loading_screen_progress());
         }
         else {
@@ -585,8 +595,8 @@ namespace Buh {
             retarget_call(game_frame + 5, reinterpret_cast<const void *>(loading_screen_frame));
             retarget_call(menu_frame + 7, reinterpret_cast<const void *>(loading_screen_frame));
             tone_follows_frames = true;
-            set_up_loading_tone();
         }
+        set_up_loading_tone();
         add_console_command("buh_loading_screen", "[true|false]", 0, 1, loading_screen_command);
         add_console_command("buh_loading_screen_test", "[seconds]", 0, 1, test_command);
         add_console_command("buh_loading_screen_minimum", "[seconds]", 0, 1, minimum_command);

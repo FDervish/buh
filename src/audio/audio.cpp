@@ -8,9 +8,15 @@
 #include <soloud.h>
 #include <soloud_wavstream.h>
 
+#include <cstdio>
 #include <map>
 #include <memory>
 #include <string>
+
+namespace SoLoud {
+    // Why Windows wouldn't open the audio device (buh's change to SoLoud's WASAPI backend keeps it)
+    extern unsigned long wasapi_last_error;
+}
 
 namespace Buh {
     struct Sound {
@@ -23,14 +29,21 @@ namespace Buh {
     static auto *sounds = new std::map<std::string, Sound>;
     static float volume = 1.0F;
     static bool paused = false;
+    static bool engine_failed = false;
 
+    // Says why if it can't
     static bool start_engine() noexcept {
         if(engine) {
             return true;
         }
         auto *starting = new SoLoud::Soloud;
+        SoLoud::wasapi_last_error = 0;
         if(starting->init(SoLoud::Soloud::CLIP_ROUNDOFF, SoLoud::Soloud::WASAPI) != SoLoud::SO_NO_ERROR) {
             delete starting;
+            engine_failed = true;
+            char message[96];
+            std::snprintf(message, sizeof(message), "buh: no sound, Windows wouldn't open the audio device (error 0x%08lX)", SoLoud::wasapi_last_error);
+            console_error(message);
             return false;
         }
         engine = starting;
@@ -38,8 +51,9 @@ namespace Buh {
         return true;
     }
 
+    // Once it's failed, only buh_audio_play tries again, not every frame of the loading screen
     SoLoud::Soloud *audio_engine() noexcept {
-        return start_engine() ? engine : nullptr;
+        return engine || (!engine_failed && start_engine()) ? engine : nullptr;
     }
 
     static void stop(const std::string &name) noexcept {
@@ -77,7 +91,6 @@ namespace Buh {
             }
         }
         if(!start_engine()) {
-            console_error("buh: couldn't start audio");
             return;
         }
         auto &name = arguments[0];
