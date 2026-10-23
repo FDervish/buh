@@ -38,6 +38,10 @@ namespace Buh {
         return true;
     }
 
+    SoLoud::Soloud *audio_engine() noexcept {
+        return start_engine() ? engine : nullptr;
+    }
+
     static void stop(const std::string &name) noexcept {
         auto sound = sounds->find(name);
         if(sound != sounds->end()) {

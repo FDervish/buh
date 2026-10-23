@@ -56,6 +56,11 @@ namespace Buh {
      */
     void write_jump(std::byte *at, const void *target, std::size_t length) noexcept;
     void write_call(std::byte *at, const void *target, std::size_t length) noexcept;
+
+    /**
+     * One of buh's own resources (from its .rc files) by name, and its size, or nullptr
+     */
+    const std::byte *buh_resource(const char *name, std::size_t &size) noexcept;
 }
 
 #endif

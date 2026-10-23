@@ -5,6 +5,7 @@
 
 #include "loading_screen.hpp"
 #include "loading_screen_shader.h"
+#include "loading_tone.hpp"
 #include "../console.hpp"
 #include "../halo.hpp"
 #include "../map/map_load.hpp"
@@ -22,13 +23,7 @@
 // The most often a frame is drawn while a map loads
 #define FRAME_SECONDS (1.0 / 60.0)
 
-// How long the light takes to sweep across; it waits half that again before the next
-#define SWEEP_SECONDS 4.0
-
-// A gap this long between frames of the background means it's another loading screen, which starts the sweep over
-#define NEW_LOADING_SCREEN_SECONDS 0.5
-
-// buh_loading_screen_test's default: one sweep across and the wait after it
+// buh_loading_screen_test's default
 #define TEST_SECONDS 6.0F
 
 // The most buh_loading_screen_test and buh_loading_screen_minimum take
@@ -37,6 +32,13 @@
 // Halo's state for its singleplayer loading screen, and its "not yet" time
 #define SINGLEPLAYER_LOADING_SCREEN 1
 #define NOT_YET 0xFFFFFFFF
+
+// How long Halo keeps its singleplayer loading screen up once the map has loaded, fading out over the last 750 ms
+#define HALO_HOLD_MILLISECONDS 1750
+
+// While a map loads, it's guessed to take this many times as long as it has so far, so the longer it takes, the slower
+// the loading screen goes, the light still on screen when it's done
+#define LOAD_GUESS 3.0
 
 #define INIT_TXT_MAXIMUM_SIZE 0x10000
 
@@ -59,8 +61,6 @@ namespace Buh {
     static bool background_unavailable = false;
     static IDirect3DStateBlock9 *state_block = nullptr;
 
-    static LARGE_INTEGER sweep_start = {};
-    static LARGE_INTEGER last_background = {};
     static float last_alpha = 1.0F;
     static bool background_drawn = false;
 
@@ -82,6 +82,21 @@ namespace Buh {
     };
     static HaloLoadingScreenGlobals halo_screen = {};
 
+    // Whether the tone goes along with Halo's own frames of its loading screen, which also stop it once it's down
+    static bool tone_follows_frames = false;
+
+    // Where buh's map load is: none going, the map loading, or loaded and held for the minimum until held_until (by
+    // Halo's clock)
+    enum class MapLoadStage { NONE, LOADING, HELD };
+    static MapLoadStage map_load_stage = MapLoadStage::NONE;
+    static std::uint32_t held_until = 0;
+
+    // How far through the loading screen that went up at progress_shown_at it is, as of progress_at (both by Halo's
+    // clock), from 0 as it came up to 1 as it's gone
+    static double screen_progress = 0.0;
+    static std::uint32_t progress_shown_at = NOT_YET;
+    static std::uint32_t progress_at = 0;
+
     extern "C" {
         const void *buh_halo_loading_background = nullptr;
         void buh_loading_background_asm() noexcept;
@@ -93,15 +108,42 @@ namespace Buh {
         std::uint32_t result;
     };
 
+    // How long the loading screen has left, in milliseconds by Halo's clock. Once Halo sets when it comes down, that's
+    // it. Until then it's Halo's hold after the map, after however long buh holds it for the minimum, or while the map
+    // is still loading (or Halo waits on something else), the guess if that's longer.
+    static double milliseconds_left(std::uint32_t now, std::uint32_t shown_at) noexcept {
+        if(*halo_screen.ends_at != NOT_YET) {
+            return static_cast<std::int32_t>(*halo_screen.ends_at - now);
+        }
+        double held = map_load_stage != MapLoadStage::NONE ? std::max(static_cast<std::int32_t>(held_until - now), 0) : 0;
+        double guess = map_load_stage != MapLoadStage::HELD ? static_cast<std::int32_t>(now - shown_at) * LOAD_GUESS : 0.0;
+        return std::max(held, guess) + HALO_HOLD_MILLISECONDS;
+    }
+
+    // How far through the loading screen it is, from 0 as it comes up to 1 as it's gone. Each time, it goes on as fast
+    // as gets it to the end in the time left, so it doesn't jump when that changes.
+    static double loading_screen_progress() noexcept {
+        if(*halo_screen.shown_at == NOT_YET) {
+            return 0.0;
+        }
+        if(*halo_screen.shown_at != progress_shown_at) {
+            progress_shown_at = *halo_screen.shown_at;
+            progress_at = progress_shown_at;
+            screen_progress = 0.0;
+        }
+        auto now = halo_clock();
+        double since = static_cast<std::int32_t>(now - progress_at);
+        if(since > 0.0) {
+            double left = milliseconds_left(now, progress_shown_at);
+            screen_progress = left > 0.0 ? screen_progress + (1.0 - screen_progress) * since / (left + since) : 1.0;
+            progress_at = now;
+        }
+        return screen_progress;
+    }
+
     static bool multithreaded(IDirect3DDevice9 *device) noexcept {
         D3DDEVICE_CREATION_PARAMETERS parameters;
         return device->GetCreationParameters(&parameters) >= 0 && (parameters.BehaviorFlags & D3DCREATE_MULTITHREADED);
-    }
-
-    static HMODULE this_module() noexcept {
-        HMODULE module = nullptr;
-        GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, reinterpret_cast<LPCSTR>(&this_module), &module);
-        return module;
     }
 
     static void release_background() noexcept {
@@ -126,13 +168,11 @@ namespace Buh {
         }
         release_background();
         D3DCAPS9 caps;
-        auto *module = this_module();
-        // RT_RCDATA, as a narrow string
-        auto *resource = module ? FindResourceA(module, "LOADING_SCREEN_BACKGROUND", MAKEINTRESOURCEA(10)) : nullptr;
-        auto *data = resource ? LockResource(LoadResource(module, resource)) : nullptr;
+        std::size_t size;
+        auto *data = buh_resource("LOADING_SCREEN_BACKGROUND", size);
         if(!data || device->GetDeviceCaps(&caps) < 0 || caps.PixelShaderVersion < D3DPS_VERSION(3, 0)
         || device->CreatePixelShader(loading_screen_shader, &shader) < 0
-        || !(background = load_image(device, data, SizeofResource(module, resource), true, background_width, background_height))) {
+        || !(background = load_image(device, data, size, true, background_width, background_height))) {
             if(shader) {
                 shader->Release();
                 shader = nullptr;
@@ -154,13 +194,6 @@ namespace Buh {
             state_block = nullptr;
             return false;
         }
-        LARGE_INTEGER now, frequency;
-        QueryPerformanceCounter(&now);
-        QueryPerformanceFrequency(&frequency);
-        if(static_cast<double>(now.QuadPart - last_background.QuadPart) / frequency.QuadPart > NEW_LOADING_SCREEN_SECONDS) {
-            sweep_start = now;
-        }
-        last_background = now;
 
         // The picture covers the viewport, cropped to keep its shape
         D3DVIEWPORT9 viewport;
@@ -168,10 +201,9 @@ namespace Buh {
         float width = static_cast<float>(viewport.Width);
         float height = static_cast<float>(viewport.Height);
         float shape = (width / height) / (static_cast<float>(background_width) / background_height);
-        const float constants[5][4] = {
+        const float constants[4][4] = {
             { width, height, 0.0F, 0.0F },
-            { static_cast<float>(SWEEP_SECONDS), 0.0F, 0.0F, 0.0F },
-            { static_cast<float>(static_cast<double>(now.QuadPart - sweep_start.QuadPart) / frequency.QuadPart), 0.0F, 0.0F, 0.0F },
+            { static_cast<float>(loading_screen_progress()), 0.0F, 0.0F, 0.0F },
             { alpha, 0.0F, 0.0F, 0.0F },
             { static_cast<float>(viewport.X), static_cast<float>(viewport.Y), std::min(shape, 1.0F), std::min(1.0F / shape, 1.0F) }
         };
@@ -180,7 +212,7 @@ namespace Buh {
         state_block->Capture();
         set_image_states(device);
         device->SetPixelShader(shader);
-        device->SetPixelShaderConstantF(0, constants[0], 5);
+        device->SetPixelShaderConstantF(0, constants[0], 4);
         float left = viewport.X - 0.5F;
         float top = viewport.Y - 0.5F;
         const ImageCorner corners[4] = {
@@ -215,6 +247,22 @@ namespace Buh {
         *halo_screen.strings[0] = 0;
         *halo_screen.strings[1] = 0;
         *halo_screen.state = SINGLEPLAYER_LOADING_SCREEN;
+    }
+
+    // Once a frame: the tone along with the loading screen
+    static void update_tone() noexcept {
+        if(tone_follows_frames && enabled && *halo_screen.state != 0) {
+            update_loading_tone(loading_screen_progress());
+        }
+        else {
+            stop_loading_tone();
+        }
+    }
+
+    // Halo goes through its loading screen every frame, in game and in the menus, whether it's up or not
+    static void loading_screen_frame() noexcept {
+        halo_loading_screen();
+        update_tone();
     }
 
     // A frame of Halo's loading screen, if it's up
@@ -287,6 +335,8 @@ namespace Buh {
             QueryPerformanceCounter(&now);
             if(static_cast<double>(now.QuadPart - last_frame.QuadPart) / frequency.QuadPart >= FRAME_SECONDS) {
                 draw_loading_screen(device);
+                // Halo's own frames do this, but they're held up while it loads
+                update_tone();
                 last_frame = now;
             }
             auto left = minimum_left(shown_at, minimum);
@@ -321,6 +371,7 @@ namespace Buh {
             }
             if(!loaded && woke == WAIT_OBJECT_0) {
                 loaded = true;
+                map_load_stage = MapLoadStage::HELD;
             }
         }
         if(timer) {
@@ -347,6 +398,8 @@ namespace Buh {
         // start (or play its cutscene) behind it. A server's game goes on without it.
         auto shown_at = *halo_screen.shown_at != NOT_YET ? *halo_screen.shown_at : halo_clock();
         auto minimum = singleplayer() && *halo_screen.state != 0 ? minimum_milliseconds : 0;
+        held_until = shown_at + minimum;
+        map_load_stage = MapLoadStage::LOADING;
 
         auto *device = halo_device();
         LoadJob job = { map, load, 0 };
@@ -356,6 +409,7 @@ namespace Buh {
         }
         if(!thread) {
             job.result = load(map);
+            map_load_stage = MapLoadStage::HELD;
         }
         if(device && (thread || minimum_left(shown_at, minimum) > 0)) {
             keep_loading_screen_up(device, thread, shown_at, minimum);
@@ -364,6 +418,7 @@ namespace Buh {
             WaitForSingleObject(thread, INFINITE);
             CloseHandle(thread);
         }
+        map_load_stage = MapLoadStage::NONE;
         return job.result;
     }
 
@@ -496,6 +551,13 @@ namespace Buh {
 
         // Where it draws its background: the call before add esp, 0xC; push ebp; push 2; push -1
         auto *background_call = find_signature({ 0xE8, -1, -1, -1, -1, 0x83, 0xC4, 0x0C, 0x55, 0x6A, 0x02, 0x6A, 0xFF, 0x8D, 0x44, 0x24, 0x24 });
+
+        // Where it's gone through each frame: in game, the second of three calls before cmp [...], si; jnz, and in the
+        // menus, the second of two after xor eax, eax and before cmp word [...], -1; jnz
+        auto *game_frame = find_signature({ 0xE8, -1, -1, -1, -1, 0xE8, -1, -1, -1, -1, 0xE8, -1, -1, -1, -1, 0x66, 0x39, 0x35,
+            -1, -1, -1, -1, 0x75, 0x14 });
+        auto *menu_frame = find_signature({ 0x33, 0xC0, 0xE8, -1, -1, -1, -1, 0xE8, -1, -1, -1, -1, 0x66, 0x83, 0x3D, -1, -1, -1,
+            -1, 0xFF, 0x75, 0x14 });
         if(!behavior_flags || !loading_screen || !background_call) {
             return;
         }
@@ -519,6 +581,12 @@ namespace Buh {
         }
         set_map_load_runner(run_map_load);
         add_reset_callback(reset);
+        if(game_frame && menu_frame && branch_target(game_frame + 5) == loading_screen && branch_target(menu_frame + 7) == loading_screen) {
+            retarget_call(game_frame + 5, reinterpret_cast<const void *>(loading_screen_frame));
+            retarget_call(menu_frame + 7, reinterpret_cast<const void *>(loading_screen_frame));
+            tone_follows_frames = true;
+            set_up_loading_tone();
+        }
         add_console_command("buh_loading_screen", "[true|false]", 0, 1, loading_screen_command);
         add_console_command("buh_loading_screen_test", "[seconds]", 0, 1, test_command);
         add_console_command("buh_loading_screen_minimum", "[seconds]", 0, 1, minimum_command);

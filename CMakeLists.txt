@@ -61,6 +61,7 @@ add_library(buh MODULE
     src/loading/loading_screen.cpp
     src/loading/loading_screen.S
     src/loading/loading_screen.rc
+    src/loading/loading_tone.cpp
     src/map/fog_reset.cpp
     src/map/map_load.cpp
     src/map/map_load.S

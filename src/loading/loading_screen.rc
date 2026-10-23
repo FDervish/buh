@@ -2,3 +2,6 @@
 
 // The loading screen's background, kept gray since the shader only reads one channel
 LOADING_SCREEN_BACKGROUND RCDATA "loading_screen_background.png"
+
+// Xbox Halo's loading screen tone: 22050 Hz mono Xbox ADPCM, 36 byte blocks
+LOADING_SCREEN_TONE RCDATA "loading_screen_tone.adpcm"

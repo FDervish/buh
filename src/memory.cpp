@@ -89,4 +89,14 @@ namespace Buh {
     void write_call(std::byte *at, const void *target, std::size_t length) noexcept {
         write_branch(0xE8, at, target, length);
     }
+
+    const std::byte *buh_resource(const char *name, std::size_t &size) noexcept {
+        HMODULE module = nullptr;
+        GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, reinterpret_cast<LPCSTR>(&buh_resource), &module);
+        // RT_RCDATA, as a narrow string
+        auto *resource = module ? FindResourceA(module, name, MAKEINTRESOURCEA(10)) : nullptr;
+        auto *data = resource ? static_cast<const std::byte *>(LockResource(LoadResource(module, resource))) : nullptr;
+        size = data ? SizeofResource(module, resource) : 0;
+        return data;
+    }
 }

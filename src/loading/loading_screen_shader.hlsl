@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //
-// The loading screen's background: a light sweeping across the picture, its rays blurred out from the middle. The
+// The loading screen's background: a light sweeping across the picture once, its rays blurred out from the middle. The
 // picture covers the viewport at its own aspect ratio instead of being stretched to it.
 //
 // tools/compile_shader.py compiles this into loading_screen_shader.h.
 
 sampler2D iChannel0 : register(s0);
 float2 iResolution : register(c0);
-float iDuration : register(c1);
-float iTimeElapsed : register(c2);
-float iOpacity : register(c3);
+
+// How far through the loading screen it is, from 0 as it comes up to 1 as it's gone
+float iProgress : register(c1);
+float iOpacity : register(c2);
 
 // xy: the viewport's top left in pixels, zw: how much of the picture's width and height shows
-float4 iPlacement : register(c4);
+float4 iPlacement : register(c3);
 
 // Width of the sweeper
 #define WIDTH 0.09
@@ -26,17 +27,14 @@ float4 iPlacement : register(c4);
 #define FOCUS_POWER 11.0
 #define FOCUS_MULTIPLIER 2
 
-float mod(float x, float y) {
-    return x - y * floor(x / y);
-}
-
 float4 PixelForUV(float2 uv) {
     // Get the actual pixel intensity (just use the red channel since it's supposed to be monochrome)
     float value = tex2Dgrad(iChannel0, uv, 0, 0).r;
     float4 colorOutput = float4(0.2 * value, 0.4 * value, 1.0 * value, 1.0);
 
-    // If we're on the sweeper, it's lit up
-    float progress = mod(iTimeElapsed, iDuration * 1.5) / iDuration - 0.25;
+    // If we're on the sweeper, it's lit up. It comes in from off the left as the loading screen comes up and is off the
+    // right as it goes.
+    float progress = iProgress * 1.5 - 0.25;
     float x = uv.x;
     float d = abs(x - progress);
     float a = clamp(WIDTH - d + value * WIDTH * 0.5, 0.0, WIDTH) / WIDTH * 7.0;
