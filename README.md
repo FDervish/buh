@@ -141,6 +141,27 @@ draw_circle(320, 240, 30, 1, 1, 1, 1, { outline = 3, arc = { 0, 360 * progress }
 draw_circle_3d(x, y, z, 0.5, 2, 0.8, 0.2, 1, 0.4)
 ```
 
+`collision_test(x, y, z, dx, dy, dz [, options])` traces a ray with Halo's own collision, the one its bullets and its
+AI's line of sight use, from `x, y, z` to `x + dx, y + dy, z + dz`. It returns where it hit, the surface's normal
+there, what it hit (`"level"`, `"water"` or `"object"`), the material as tags name it (`"metal_thin"`, `"dirt"` and so
+on, or nil) and the object's ID (or nil); or nil if it hits nothing or no map is loaded. `options` is a table of any
+of:
+
+- `hit`: what it can hit, a name or a list of them: `everything` (the default: the level, water and every object),
+  `sight` (what blocks Halo's AI's line of sight: the level, vehicles, scenery and machines, past see-through
+  surfaces), `level`, `water`, `objects`, or objects of one type: `bipeds`, `vehicles`, `weapons`, `equipment`,
+  `garbage`, `projectiles`, `scenery`, `machines`, `controls`, `light_fixtures`, `placeholders` or `sound_scenery`
+- `ignore`: an object it goes through, usually the one looking, by ID or by address (as `get_object` and
+  `get_dynamic_player` give it)
+- `back_faces`: hit surfaces from behind too
+- `invisible`: hit invisible surfaces too, like player clipping, which it otherwise goes through
+
+```lua
+-- From the camera at cx, cy, cz, looking along fx, fy, fz: what's there, up to 100 units away
+local x, y, z, _, _, _, what, material = collision_test(cx, cy, cz, fx * 100, fy * 100, fz * 100, { ignore = get_dynamic_player() })
+if x then draw_circle_3d(x, y, z, 0.3, 2, 1, 1, 0.5, 0) end
+```
+
 Chimera exports its Lua, and makes each script's Lua with one call that opens its libraries; buh points that call at
 itself and adds these once they're open, through Chimera's own Lua. A Chimera build that doesn't export its Lua
 gets none of them (the commands above still work), and one that has functions by these names keeps its own.
@@ -190,6 +211,40 @@ their own: one with a stock path may be taken from `sounds.map` instead, which h
   side is sheared as a whole, so things like ammo counters stay lined up. 0 (off) by default; around 4 to 6 looks right.
 
 It works with Chimera's widescreen fix on or off.
+
+## HUD elements
+
+Each element of the HUD that the map's HUD tags define (each static element, meter and number, and each of a
+weapon's overlays and crosshairs) can be moved, turned, scaled, faded or hidden on its own. An element's ID is where
+its definition is in the map's tag data, so it stays the same while the map is loaded: switch away from a weapon and
+back, and its elements' changes come back with it. Places and moves are in the HUD's 640 by 480, as for buh's drawing
+functions; turning and scaling are about the middle of the whole element (all of a number's digits, say). Changes
+last until they're reset or another map loads.
+
+- `buh_hud_elements`: list the elements drawn in the last frame, with their IDs, kinds and places
+- `buh_hud_element <id> [offset <dx> <dy>] [rotate <degrees>] [scale <scale>] [opacity <opacity>] [hide]`: draw one
+  this way from now on, replacing any change made to it before
+- `buh_hud_element_reset [id]`: draw one the way Halo does again, or all of them
+
+**In Chimera's Lua scripts:**
+
+- `get_hud_elements()`: the elements drawn in the last frame, each a table of `id`, `kind` (`"static"`, `"meter"`,
+  `"number"` or `"overlay"`), and `x`, `y`, `width` and `height`, where Halo put it (before any change made here)
+- `set_hud_element(id, { dx = <x>, dy = <y>, rotate = <degrees>, scale = <scale>, opacity = <opacity>, hidden = <true> })`:
+  true, or false if Halo hasn't drawn that element on this map
+- `reset_hud_elements([id])`
+
+```lua
+-- Sink the meters as the shield goes down
+for _, element in ipairs(get_hud_elements()) do
+    if element.kind == "meter" then
+        set_hud_element(element.id, { dy = 40 * (1 - shield) })
+    end
+end
+```
+
+The motion sensor, navpoints, HUD messages and HUD text aren't HUD elements here. It works with Chimera's widescreen
+fix on or off, and with `buh_hud_skew`.
 
 ## Maps
 

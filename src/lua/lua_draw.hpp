@@ -7,8 +7,8 @@
 
 namespace Buh {
     /**
-     * Drawing functions for Chimera's Lua scripts (shapes on the HUD and in the world, and world_to_screen), if
-     * Chimera exports its Lua
+     * Drawing functions for Chimera's Lua scripts (shapes on the HUD and in the world, and world_to_screen),
+     * collision_test, and HUD element changes, if Chimera exports its Lua
      */
     void set_up_lua_drawing() noexcept;
 

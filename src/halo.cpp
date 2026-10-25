@@ -20,12 +20,28 @@
 #define OBJECT_CENTER 0xA0
 #define OBJECT_PARENT 0x11C
 
+// What a collision test hit: what kind of thing, then (past where along the ray, and where in the level it started and
+// ended) the point, the surface's plane, its material and the object
+#define COLLISION_RESULT_SIZE 0x50
+#define COLLISION_RESULT_TYPE 0x00
+#define COLLISION_RESULT_POINT 0x18
+#define COLLISION_RESULT_PLANE 0x24
+#define COLLISION_RESULT_MATERIAL 0x34
+#define COLLISION_RESULT_OBJECT 0x38
+#define COLLISION_RESULT_WATER 0
+#define COLLISION_RESULT_OBJECT_HIT 3
+
 namespace Buh {
     static IDirect3DDevice9 **device = nullptr;
     static std::uint8_t **game_time_globals = nullptr;
     static const std::uint8_t *console = nullptr;
     static const std::int16_t *server_type = nullptr;
     static const std::byte *const *object_table = nullptr;
+
+    using CollisionTestVector = bool (*)(std::uint32_t flags, const float *point, const float *vector, std::uint32_t ignore, std::byte *result);
+    static CollisionTestVector collision_test_vector = nullptr;
+    // The loaded level's collision geometry, or nullptr between maps
+    static const void *const *collision_bsp = nullptr;
 
     struct TagDataHeader {
         Tag *tag_array;
@@ -70,30 +86,78 @@ namespace Buh {
         return singleplayer() && (game_paused() || console_open());
     }
 
-    bool object_position(std::uint32_t object, float (&position)[3]) noexcept {
+    // The object table's slots and how many there are, or false if there's no table
+    static bool object_slots(const std::byte *&slots, std::uint16_t &size) noexcept {
         auto *table = object_table ? *object_table : nullptr;
-        if(!table || object == 0xFFFFFFFF) {
+        if(!table) {
             return false;
         }
-        auto index = object & 0xFFFF;
-        std::uint16_t size;
         std::memcpy(&size, table + TABLE_SIZE, sizeof(size));
-        if(index >= size) {
-            return false;
-        }
-        const std::byte *slots;
         std::memcpy(&slots, table + TABLE_ELEMENTS, sizeof(slots));
+        return slots != nullptr;
+    }
+
+    // A slot's salt and object
+    static void object_slot(const std::byte *slots, std::uint16_t index, std::uint16_t &salt, const std::byte *&datum) noexcept {
         auto *slot = slots + index * OBJECT_SLOT_SIZE;
-        std::uint16_t salt;
-        const std::byte *datum;
         std::memcpy(&salt, slot, sizeof(salt));
         std::memcpy(&datum, slot + OBJECT_SLOT_OBJECT, sizeof(datum));
+    }
+
+    bool object_position(std::uint32_t object, float (&position)[3]) noexcept {
+        const std::byte *slots;
+        std::uint16_t size;
+        if(object == 0xFFFFFFFF || !object_slots(slots, size) || (object & 0xFFFF) >= size) {
+            return false;
+        }
+        std::uint16_t salt;
+        const std::byte *datum;
+        object_slot(slots, static_cast<std::uint16_t>(object & 0xFFFF), salt, datum);
         if(salt != object >> 16 || !datum) {
             return false;
         }
         std::uint32_t parent;
         std::memcpy(&parent, datum + OBJECT_PARENT, sizeof(parent));
         std::memcpy(position, datum + (parent == 0xFFFFFFFF ? OBJECT_POSITION : OBJECT_CENTER), sizeof(position));
+        return true;
+    }
+
+    std::uint32_t object_id_at(std::uintptr_t address) noexcept {
+        const std::byte *slots;
+        std::uint16_t size;
+        if(!address || !object_slots(slots, size)) {
+            return 0xFFFFFFFF;
+        }
+        for(std::uint16_t index = 0; index < size; index++) {
+            std::uint16_t salt;
+            const std::byte *datum;
+            object_slot(slots, index, salt, datum);
+            // A free slot's salt is 0
+            if(salt && reinterpret_cast<std::uintptr_t>(datum) == address) {
+                return static_cast<std::uint32_t>(salt) << 16 | index;
+            }
+        }
+        return 0xFFFFFFFF;
+    }
+
+    bool collision_test(std::uint32_t flags, const float (&origin)[3], const float (&delta)[3], std::uint32_t ignore, CollisionHit &hit) noexcept {
+        if(!collision_test_vector || !collision_bsp || !*collision_bsp) {
+            return false;
+        }
+        std::byte result[COLLISION_RESULT_SIZE] = {};
+        if(!collision_test_vector(flags, origin, delta, ignore, result)) {
+            return false;
+        }
+        std::int16_t type;
+        std::memcpy(&type, result + COLLISION_RESULT_TYPE, sizeof(type));
+        hit.what = type == COLLISION_RESULT_WATER ? CollisionHit::WATER : type == COLLISION_RESULT_OBJECT_HIT ? CollisionHit::OBJECT : CollisionHit::LEVEL;
+        std::memcpy(hit.point, result + COLLISION_RESULT_POINT, sizeof(hit.point));
+        std::memcpy(hit.normal, result + COLLISION_RESULT_PLANE, sizeof(hit.normal));
+        std::memcpy(&hit.material, result + COLLISION_RESULT_MATERIAL, sizeof(hit.material));
+        hit.object = 0xFFFFFFFF;
+        if(hit.what == CollisionHit::OBJECT) {
+            std::memcpy(&hit.object, result + COLLISION_RESULT_OBJECT, sizeof(hit.object));
+        }
         return true;
     }
 
@@ -170,6 +234,16 @@ namespace Buh {
         auto *objects = find_signature({ 0x8B, 0x0D, -1, -1, -1, -1, 0x8B, 0x51, 0x34, 0x25, 0xFF, 0xFF, 0x00, 0x00, 0x8D, 0x04, 0x40, 0x8B, 0x44, 0x82, 0x08, 0x80, 0xB8, 0xA3, 0x02, 0x00, 0x00, 0x1C });
         if(objects) {
             object_table = read_address<const std::byte *const>(objects + 2);
+        }
+        // collision_test_vector(flags, point, vector, ignore, result): sub esp, 0x438, its arguments, and whether it
+        // tests the level, water or objects at all
+        auto *collision = find_signature({ 0x81, 0xEC, 0x38, 0x04, 0x00, 0x00, 0x8B, 0x8C, 0x24, 0x44, 0x04, 0x00, 0x00, 0x53, 0x8B, 0x9C, 0x24, 0x40, 0x04, 0x00, 0x00, 0xF6, 0xC3, 0xE0 });
+        // Inside it, the level's collision geometry passed on: mov edx, [collision bsp]; push edi; push ecx;
+        // push 0x100; push edx
+        auto *bsp = find_signature({ 0x8B, 0x15, -1, -1, -1, -1, 0x57, 0x51, 0x68, 0x00, 0x01, 0x00, 0x00, 0x52, 0x8D, 0x4C, 0x24, -1, 0x89, 0x44, 0x24 });
+        if(collision && bsp) {
+            collision_test_vector = reinterpret_cast<CollisionTestVector>(collision);
+            collision_bsp = read_address<const void *const>(bsp + 2);
         }
         if(halo_player) {
             device = read_address<IDirect3DDevice9 *>(halo_player + 0x29);

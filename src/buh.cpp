@@ -7,6 +7,7 @@
 #include "console.hpp"
 #include "game_state.hpp"
 #include "halo.hpp"
+#include "hud/hud_elements.hpp"
 #include "hud/hud_skew.hpp"
 #include "loading/loading_screen.hpp"
 #include "map/fog_reset.hpp"
@@ -59,6 +60,7 @@ extern "C" BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID) {
         Buh::set_up_sound_length();
         Buh::set_up_audio();
         Buh::set_up_hud_skew();
+        Buh::set_up_hud_elements();
     }
     return TRUE;
 }

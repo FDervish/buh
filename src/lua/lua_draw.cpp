@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //
 // Drawing for Chimera's Lua scripts: rectangles, lines, quads and circles on the HUD, lines, boxes and circles in the
-// world, and world_to_screen, each drawn in the frame a script draws it.
+// world, and world_to_screen, each drawn in the frame a script draws it. And collision_test, Halo's own ray trace, and
+// get_hud_elements, set_hud_element and reset_hud_elements, which change how single HUD elements are drawn.
 //
 // Chimera exports every one of its Lua functions by name, and makes each script's Lua with one call to
 // luaL_openselectedlibs. That call is pointed here instead: once Chimera's libraries are open, buh adds its functions
@@ -9,11 +10,14 @@
 // just doesn't get them. Chimera adds its own functions after, so where it has one by the same name, it's Chimera's.
 
 #include "lua_draw.hpp"
+#include "../halo.hpp"
+#include "../hud/hud_elements.hpp"
 #include "../memory.hpp"
 #include "../render.hpp"
 #include "../sprites/image.hpp"
 #include "../sprites/shapes.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <vector>
@@ -22,6 +26,7 @@
 #define LUA_TNIL 0
 #define LUA_TBOOLEAN 1
 #define LUA_TNUMBER 3
+#define LUA_TSTRING 4
 #define LUA_TTABLE 5
 
 // The HUD's units, which scripts draw in: 640 across and 480 down, whatever the screen's shape
@@ -29,6 +34,8 @@
 #define HUD_HEIGHT 480.0
 
 #define MAXIMUM_QUEUED_SHAPES 16384
+
+#define MAXIMUM_LISTED_HUD_ELEMENTS 256
 
 struct lua_State;
 
@@ -40,9 +47,17 @@ namespace Buh {
         int (*type)(lua_State *, int);
         void (*settop)(lua_State *, int);
         double (*tonumberx)(lua_State *, int, int *);
+        long long (*tointegerx)(lua_State *, int, int *);
         int (*toboolean)(lua_State *, int);
+        const char *(*tolstring)(lua_State *, int, std::size_t *);
         void (*pushnil)(lua_State *);
         void (*pushnumber)(lua_State *, double);
+        void (*pushinteger)(lua_State *, long long);
+        const char *(*pushstring)(lua_State *, const char *);
+        void (*pushboolean)(lua_State *, int);
+        void (*createtable)(lua_State *, int, int);
+        void (*setfield)(lua_State *, int, const char *);
+        void (*rawseti)(lua_State *, int, long long);
         void (*pushcclosure)(lua_State *, LuaFunction, int);
         int (*getglobal)(lua_State *, const char *);
         void (*setglobal)(lua_State *, const char *);
@@ -341,6 +356,241 @@ namespace Buh {
         return 3;
     }
 
+    // ---------------------------------------------------------------- collisions
+
+    // What a ray can hit, by name
+    static const struct {
+        const char *name;
+        std::uint32_t flags;
+    } HIT_NAMES[] = {
+        { "everything", COLLISION_LEVEL | COLLISION_WATER | COLLISION_ALL_OBJECTS },
+        // What blocks Halo's AI's line of sight: the level, vehicles, scenery and machines, past see-through surfaces
+        { "sight", COLLISION_LEVEL | COLLISION_OBJECT_TYPE(1) | COLLISION_OBJECT_TYPE(6) | COLLISION_OBJECT_TYPE(7) | COLLISION_SKIP_TWO_SIDED },
+        { "level", COLLISION_LEVEL },
+        { "water", COLLISION_WATER },
+        { "objects", COLLISION_ALL_OBJECTS },
+        { "bipeds", COLLISION_OBJECT_TYPE(0) },
+        { "vehicles", COLLISION_OBJECT_TYPE(1) },
+        { "weapons", COLLISION_OBJECT_TYPE(2) },
+        { "equipment", COLLISION_OBJECT_TYPE(3) },
+        { "garbage", COLLISION_OBJECT_TYPE(4) },
+        { "projectiles", COLLISION_OBJECT_TYPE(5) },
+        { "scenery", COLLISION_OBJECT_TYPE(6) },
+        { "machines", COLLISION_OBJECT_TYPE(7) },
+        { "controls", COLLISION_OBJECT_TYPE(8) },
+        { "light_fixtures", COLLISION_OBJECT_TYPE(9) },
+        { "placeholders", COLLISION_OBJECT_TYPE(10) },
+        { "sound_scenery", COLLISION_OBJECT_TYPE(11) }
+    };
+
+    // Halo's materials, by the names tags give them
+    static const char *const MATERIAL_NAMES[] = {
+        "dirt", "sand", "stone", "snow", "wood", "metal_hollow", "metal_thin", "metal_thick", "rubber", "glass",
+        "force_field", "grunt", "hunter_armor", "hunter_skin", "elite", "jackal", "jackal_energy_shield", "engineer_skin",
+        "engineer_force_field", "flood_combat_form", "flood_carrier_form", "cyborg_armor", "cyborg_energy_shield",
+        "human_armor", "human_skin", "sentinel", "monitor", "plastic", "water", "leaves", "elite_energy_shield", "ice",
+        "hunter_shield"
+    };
+
+    static const char *const HIT_WHAT[] = { "level", "water", "object" };
+
+    // What the name at index hits, or 0 if it isn't one
+    static std::uint32_t hit_flags(lua_State *state, int index) noexcept {
+        if(lua.type(state, index) != LUA_TSTRING) {
+            return 0;
+        }
+        auto *name = lua.tolstring(state, index, nullptr);
+        for(auto &hit : HIT_NAMES) {
+            if(std::strcmp(name, hit.name) == 0) {
+                return hit.flags;
+            }
+        }
+        return 0;
+    }
+
+    struct CollisionOptions {
+        std::uint32_t hit = HIT_NAMES[0].flags;
+        std::uint32_t ignore = 0xFFFFFFFF;
+        bool back_faces = false;
+        bool invisible = false;
+    };
+
+    // The options table at index, if there's one there: hit (a name or a list of them), ignore (an object), back_faces
+    // and invisible. False if something else is there, or something in it is wrong.
+    static bool read_collision_options(lua_State *state, int index, CollisionOptions &options) noexcept {
+        auto type = lua.type(state, index);
+        if(type == LUA_TNONE || type == LUA_TNIL) {
+            return true;
+        }
+        if(type != LUA_TTABLE) {
+            return false;
+        }
+        bool valid = true;
+        auto hit = lua.getfield(state, index, "hit");
+        if(hit == LUA_TSTRING) {
+            options.hit = hit_flags(state, -1);
+            valid = options.hit != 0;
+        }
+        else if(hit == LUA_TTABLE) {
+            options.hit = 0;
+            for(long long i = 1; valid; i++) {
+                bool end = lua.rawgeti(state, -1, i) == LUA_TNIL;
+                auto flags = end ? 0 : hit_flags(state, -1);
+                lua.settop(state, -2);
+                if(end) {
+                    break;
+                }
+                valid = flags != 0;
+                options.hit |= flags;
+            }
+            valid = valid && options.hit != 0;
+        }
+        else if(hit != LUA_TNIL) {
+            valid = false;
+        }
+        lua.settop(state, -2);
+
+        auto ignore = lua.getfield(state, index, "ignore");
+        if(ignore == LUA_TNUMBER) {
+            int is_integer = 0;
+            auto value = static_cast<std::uint32_t>(lua.tointegerx(state, -1, &is_integer));
+            // An object's ID has its salt's top bit set; anything else is its address, as get_object() and
+            // get_dynamic_player() give one
+            options.ignore = value & 0x80000000 ? value : object_id_at(value);
+            valid = valid && is_integer;
+        }
+        else if(ignore != LUA_TNIL) {
+            valid = false;
+        }
+        lua.settop(state, -2);
+
+        options.back_faces = option_flag(state, index, "back_faces");
+        options.invisible = option_flag(state, index, "invisible");
+        return valid;
+    }
+
+    // collision_test(x, y, z, dx, dy, dz [, options]) -> where it hit, the surface's normal there, what it hit, its
+    // material and the object, or nil if it hits nothing on its way to x + dx, y + dy, z + dz
+    static int lua_collision_test(lua_State *state) noexcept {
+        double v[6];
+        CollisionOptions options;
+        if(!numbers(state, 1, 6, v) || !read_collision_options(state, 7, options)) {
+            return usage(state, "collision_test(x, y, z, dx, dy, dz [, { hit = <name or names>, ignore = <object>, back_faces = <true>, invisible = <true> }]); "
+                "hit is everything (the default), sight, level, water, objects, bipeds, vehicles, weapons, equipment, garbage, projectiles, "
+                "scenery, machines, controls, light_fixtures, placeholders or sound_scenery");
+        }
+        // Surfaces facing the ray, and not invisible ones (player clipping and the like) unless asked
+        auto flags = options.hit | COLLISION_FRONT_FACES | (options.back_faces ? COLLISION_BACK_FACES : 0) | (options.invisible ? 0 : COLLISION_SKIP_INVISIBLE);
+        const float origin[3] = { static_cast<float>(v[0]), static_cast<float>(v[1]), static_cast<float>(v[2]) };
+        const float delta[3] = { static_cast<float>(v[3]), static_cast<float>(v[4]), static_cast<float>(v[5]) };
+        CollisionHit hit;
+        if(!collision_test(flags, origin, delta, options.ignore, hit)) {
+            lua.pushnil(state);
+            return 1;
+        }
+        for(auto value : hit.point) {
+            lua.pushnumber(state, value);
+        }
+        for(auto value : hit.normal) {
+            lua.pushnumber(state, value);
+        }
+        lua.pushstring(state, HIT_WHAT[hit.what]);
+        if(hit.material >= 0 && static_cast<std::size_t>(hit.material) < sizeof(MATERIAL_NAMES) / sizeof(MATERIAL_NAMES[0])) {
+            lua.pushstring(state, MATERIAL_NAMES[hit.material]);
+        }
+        else {
+            lua.pushnil(state);
+        }
+        if(hit.object != 0xFFFFFFFF) {
+            lua.pushinteger(state, hit.object);
+        }
+        else {
+            lua.pushnil(state);
+        }
+        return 9;
+    }
+
+    // ---------------------------------------------------------------- HUD elements
+
+    // get_hud_elements() -> { { id, kind, x, y, width, height }, ... } for each element Halo drew last frame
+    static int lua_get_hud_elements(lua_State *state) noexcept {
+        static HudElement elements[MAXIMUM_LISTED_HUD_ELEMENTS];
+        auto count = std::min(hud_elements(elements, MAXIMUM_LISTED_HUD_ELEMENTS), static_cast<std::size_t>(MAXIMUM_LISTED_HUD_ELEMENTS));
+        lua.createtable(state, static_cast<int>(count), 0);
+        for(std::size_t i = 0; i < count; i++) {
+            auto &element = elements[i];
+            lua.createtable(state, 0, 6);
+            lua.pushinteger(state, element.id);
+            lua.setfield(state, -2, "id");
+            lua.pushstring(state, hud_element_kind_name(element.kind));
+            lua.setfield(state, -2, "kind");
+            lua.pushnumber(state, element.x);
+            lua.setfield(state, -2, "x");
+            lua.pushnumber(state, element.y);
+            lua.setfield(state, -2, "y");
+            lua.pushnumber(state, element.width);
+            lua.setfield(state, -2, "width");
+            lua.pushnumber(state, element.height);
+            lua.setfield(state, -2, "height");
+            lua.rawseti(state, -2, static_cast<long long>(i + 1));
+        }
+        return 1;
+    }
+
+    // The ID at index, as get_hud_elements() gives it
+    static bool hud_element_id(lua_State *state, int index, std::uint32_t &id) noexcept {
+        int is_integer = 0;
+        auto value = lua.tointegerx(state, index, &is_integer);
+        id = static_cast<std::uint32_t>(value);
+        return is_integer && value >= 0 && value <= 0xFFFFFFFF;
+    }
+
+    // set_hud_element(id, { dx, dy, rotate, scale, opacity, hidden }) -> whether Halo has drawn that element on this map
+    static int lua_set_hud_element(lua_State *state) noexcept {
+        std::uint32_t id;
+        auto options = lua.type(state, 2);
+        if(!hud_element_id(state, 1, id) || (options != LUA_TTABLE && options != LUA_TNIL && options != LUA_TNONE)) {
+            return usage(state, "set_hud_element(id, { dx = <x>, dy = <y>, rotate = <degrees>, scale = <scale>, opacity = <opacity>, hidden = <true> })");
+        }
+        HudElementChange change;
+        if(options == LUA_TTABLE) {
+            double value = 0.0;
+            option_number(state, 2, "dx", value);
+            change.dx = static_cast<float>(value);
+            value = 0.0;
+            option_number(state, 2, "dy", value);
+            change.dy = static_cast<float>(value);
+            value = 0.0;
+            option_number(state, 2, "rotate", value);
+            change.rotation = static_cast<float>(value);
+            value = 1.0;
+            option_number(state, 2, "scale", value);
+            change.scale = static_cast<float>(std::max(value, 0.0));
+            value = 1.0;
+            option_number(state, 2, "opacity", value);
+            change.opacity = static_cast<float>(value);
+            change.hidden = option_flag(state, 2, "hidden");
+        }
+        lua.pushboolean(state, set_hud_element(id, change));
+        return 1;
+    }
+
+    // reset_hud_elements([id]) -> each element (or that one) drawn the way Halo draws it again
+    static int lua_reset_hud_elements(lua_State *state) noexcept {
+        auto type = lua.type(state, 1);
+        if(type == LUA_TNONE || type == LUA_TNIL) {
+            reset_hud_elements();
+            lua.pushboolean(state, 1);
+            return 1;
+        }
+        std::uint32_t id;
+        if(!hud_element_id(state, 1, id)) {
+            return usage(state, "reset_hud_elements([id])");
+        }
+        lua.pushboolean(state, reset_hud_element(id));
+        return 1;
+    }
+
     // ---------------------------------------------------------------- frames
 
     // What scripts drew since the HUD was last drawn, drawn once and then gone, so it can't pile up into something more
@@ -394,6 +644,10 @@ namespace Buh {
             { "draw_circle", lua_draw_circle },
             { "draw_box_3d", lua_draw_box_3d },
             { "draw_circle_3d", lua_draw_circle_3d },
+            { "collision_test", lua_collision_test },
+            { "get_hud_elements", lua_get_hud_elements },
+            { "set_hud_element", lua_set_hud_element },
+            { "reset_hud_elements", lua_reset_hud_elements },
         };
         for(auto &function : functions) {
             bool taken = lua.getglobal(state, function.name) != LUA_TNIL;
@@ -448,8 +702,12 @@ namespace Buh {
             return;
         }
         bool found = resolve(module, "lua_type", lua.type) && resolve(module, "lua_settop", lua.settop)
-            && resolve(module, "lua_tonumberx", lua.tonumberx) && resolve(module, "lua_toboolean", lua.toboolean)
+            && resolve(module, "lua_tonumberx", lua.tonumberx) && resolve(module, "lua_tointegerx", lua.tointegerx)
+            && resolve(module, "lua_toboolean", lua.toboolean) && resolve(module, "lua_tolstring", lua.tolstring)
             && resolve(module, "lua_pushnil", lua.pushnil) && resolve(module, "lua_pushnumber", lua.pushnumber)
+            && resolve(module, "lua_pushinteger", lua.pushinteger) && resolve(module, "lua_pushstring", lua.pushstring)
+            && resolve(module, "lua_pushboolean", lua.pushboolean) && resolve(module, "lua_createtable", lua.createtable)
+            && resolve(module, "lua_setfield", lua.setfield) && resolve(module, "lua_rawseti", lua.rawseti)
             && resolve(module, "lua_pushcclosure", lua.pushcclosure) && resolve(module, "lua_getglobal", lua.getglobal)
             && resolve(module, "lua_setglobal", lua.setglobal) && resolve(module, "lua_getfield", lua.getfield)
             && resolve(module, "lua_rawgeti", lua.rawgeti) && resolve(module, "luaL_error", lua.error)

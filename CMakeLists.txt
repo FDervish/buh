@@ -56,6 +56,8 @@ add_library(buh MODULE
     src/console.S
     src/game_state.cpp
     src/halo.cpp
+    src/hud/hud_elements.cpp
+    src/hud/hud_elements.S
     src/hud/hud_skew.cpp
     src/hud/hud_skew.S
     src/loading/loading_screen.cpp

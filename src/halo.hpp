@@ -35,6 +35,42 @@ namespace Buh {
      */
     bool object_position(std::uint32_t object, float (&position)[3]) noexcept;
 
+    /**
+     * The ID of the object at an address, or 0xFFFFFFFF if there's none there
+     */
+    std::uint32_t object_id_at(std::uintptr_t address) noexcept;
+
+    // What Halo's collision tests hit: which way the surfaces they hit face, which surfaces they pass through, and
+    // whether they hit the level, water and objects, of which types (0 bipeds, 1 vehicles, 2 weapons, 3 equipment,
+    // 4 garbage, 5 projectiles, 6 scenery, 7 machines, 8 controls, 9 light fixtures, 10 placeholders, 11 sound scenery)
+    #define COLLISION_FRONT_FACES 0x1
+    #define COLLISION_BACK_FACES 0x2
+    #define COLLISION_SKIP_TWO_SIDED 0x4
+    #define COLLISION_SKIP_INVISIBLE 0x8
+    #define COLLISION_LEVEL 0x20
+    #define COLLISION_WATER 0x40
+    #define COLLISION_OBJECTS 0x80
+    #define COLLISION_OBJECT_TYPE(type) (COLLISION_OBJECTS | 0x100U << (type))
+    #define COLLISION_ALL_OBJECTS (COLLISION_OBJECTS | 0xFFF00U)
+
+    struct CollisionHit {
+        enum What { LEVEL, WATER, OBJECT } what;
+        float point[3];
+        // Facing back along the ray
+        float normal[3];
+        // An index into Halo's materials, or -1
+        std::int16_t material;
+        // 0xFFFFFFFF unless what is OBJECT
+        std::uint32_t object;
+    };
+
+    /**
+     * Halo's collision_test_vector(), the ray trace its bullets and its AI's line of sight use: from origin to
+     * origin + delta, hitting what flags say and passing through the object ignore (0xFFFFFFFF for none)
+     * @return false if it hit nothing, or there's no level loaded to trace through
+     */
+    bool collision_test(std::uint32_t flags, const float (&origin)[3], const float (&delta)[3], std::uint32_t ignore, CollisionHit &hit) noexcept;
+
     #define TAG_CLASS_BITMAP 0x6269746D
     #define TAG_CLASS_FONT 0x666F6E74
     #define TAG_CLASS_GLOBALS 0x6D617467
