@@ -73,6 +73,21 @@ namespace Buh {
     void post_setting_command(const char *name, const char *usage, float &value, float least, float most, const std::vector<std::string> &arguments);
 
     /**
+     * Something that keeps a post process from drawing. A frame or two of it is normal as one starts, so it's only said
+     * once it's gone on a while, and then not again until it's reset ({}), as its effect is turned on again. Drawing
+     * sets times back to 0.
+     */
+    struct PostTrouble {
+        int times;
+        bool told;
+    };
+
+    /**
+     * It kept a post process from drawing again: say so if it's gone on a while and hasn't been said
+     */
+    void post_trouble(PostTrouble &trouble, const char *message) noexcept;
+
+    /**
      * 0.05 rather than 0.050000
      */
     std::string post_number_text(float value);

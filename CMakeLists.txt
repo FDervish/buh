@@ -81,7 +81,9 @@ add_library(buh MODULE
     src/particles/extend_render_limits.cpp
     src/particles/particle_culling.cpp
     src/particles/particle_depth_sort.cpp
+    src/post/ao.cpp
     src/post/bloom.cpp
+    src/post/depth.cpp
     src/post/grading.cpp
     src/post/post.cpp
     src/post/smaa.cpp

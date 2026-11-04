@@ -39,6 +39,10 @@ namespace Buh {
     static const std::int16_t *server_type = nullptr;
     static const std::byte *const *object_table = nullptr;
 
+    // The near and far clip distances first person models are drawn with
+    static const float *first_person_near = nullptr;
+    static const float *first_person_far = nullptr;
+
     using CollisionTestVector = bool (*)(std::uint32_t flags, const float *point, const float *vector, std::uint32_t ignore, std::byte *result);
     static CollisionTestVector collision_test_vector = nullptr;
     // The loaded level's collision geometry, or nullptr between maps
@@ -335,5 +339,20 @@ namespace Buh {
         if(server) {
             server_type = read_address<const std::int16_t>(server + 3);
         }
+        // The first person clip distances, pushed for the projection to be rebuilt with: mov edx, [far];
+        // mov eax, [near]; push edx; push eax; call
+        if(auto *clip = find_signature({ 0x8B, 0x15, -1, -1, -1, -1, 0xA1, -1, -1, -1, -1, 0x52, 0x50, 0xE8 })) {
+            first_person_far = read_address<const float>(clip + 2);
+            first_person_near = read_address<const float>(clip + 7);
+        }
+    }
+
+    bool first_person_clip(float &near_distance, float &far_distance) noexcept {
+        if(!first_person_near || !first_person_far) {
+            return false;
+        }
+        near_distance = *first_person_near;
+        far_distance = *first_person_far;
+        return near_distance > 0.0F && far_distance > near_distance;
     }
 }

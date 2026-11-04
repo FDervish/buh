@@ -34,6 +34,12 @@ namespace Buh {
     const std::byte *object_datum(std::uint32_t object) noexcept;
 
     /**
+     * The near and far clip distances Halo draws first person models with, for its projection rebuilt for them
+     * @return false if buh couldn't find them
+     */
+    bool first_person_clip(float &near_distance, float &far_distance) noexcept;
+
+    /**
      * Which of the scenario's structure BSPs is loaded, as Halo's structure_bsp_index script function says: -1 for none,
      * or -2 if buh couldn't find where Halo keeps it
      */

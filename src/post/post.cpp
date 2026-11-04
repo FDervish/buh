@@ -13,6 +13,9 @@
 // The most samplers a post process reads from
 #define POST_SAMPLERS 8
 
+// How many times in a row something keeps a post process from drawing before it's said: a second or so of frames
+#define TROUBLE_TIMES 60
+
 namespace Buh {
     struct QuadVertex {
         float x;
@@ -232,6 +235,13 @@ namespace Buh {
             value = given;
         }
         console_print((std::string(name) + ": " + post_number_text(value)).c_str());
+    }
+
+    void post_trouble(PostTrouble &trouble, const char *message) noexcept {
+        if(!trouble.told && ++trouble.times >= TROUBLE_TIMES) {
+            trouble.told = true;
+            console_error(message);
+        }
     }
 
     void set_up_post() noexcept {

@@ -431,6 +431,34 @@ by default, and changes nothing until there's something to grade.
 Like the bloom's, they work from `init.txt`, the console and `execute_script`, so each map can have its own grade. It
 needs pixel shader 3.0 and volume textures.
 
+## The world's depth
+
+Ambient occlusion works from the world's depth. Halo's depth buffer can't be read, so while it's on, Halo draws into one
+that can be (an INTZ depth texture) in its place; once it's off, Halo's own goes back. It needs a card that reads INTZ
+depth textures, and no multisampling forced on in the driver.
+
+- `buh_depth_view [true|false]`: show what buh reads in place of the world. Near is white fading to black, the sky
+  blue and first person things red. If it looks like that in game, the depth effects have what they need. If the
+  depth can't be read for a second or so, the console says why, once.
+
+Halo draws the first person weapon and arms with near and far clip distances of their own, and marks them in the
+stencil buffer. buh makes a mask of them from that, once a frame, so the effects tell them apart exactly and read their
+depth at its true distance.
+
+## Ambient occlusion
+
+`buh_ao [true|false]` darkens where surfaces meet and close in, which sits characters and vehicles in the world. It's
+GTAO at half size, with slices evenly around the view and occluders measured by how far they rise over the surface.
+A bias lets the shallow creases between Halo's flat triangles go. It's denoised by a blur that follows the surface and
+stops at edges, and brought back to full size by depth. It goes in once Halo has drawn the opaque world and before its
+transparent surfaces, so smoke, glass and effects go over it rather than being darkened. It fades with Halo's
+atmospheric fog as each surface does. The weapon and arms are occluded by themselves alone, and don't occlude the
+world. The sky and bright pixels aren't darkened. Off by default.
+
+- `buh_ao_radius [world units]` (0.05 to 2, 0.25 by default)
+- `buh_ao_intensity [amount]` (0 to 4, 1 by default)
+- `buh_ao_bias [degrees]` (0 to 60, 15 by default): raise it if the creases between triangles still show
+
 ## Models
 
 Picking a model region's permutation copies every candidate into a 32 slot buffer without checking how many there

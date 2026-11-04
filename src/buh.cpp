@@ -21,7 +21,9 @@
 #include "particles/extend_render_limits.hpp"
 #include "particles/particle_culling.hpp"
 #include "particles/particle_depth_sort.hpp"
+#include "post/ao.hpp"
 #include "post/bloom.hpp"
+#include "post/depth.hpp"
 #include "post/grading.hpp"
 #include "post/post.hpp"
 #include "post/smaa.hpp"
@@ -60,13 +62,17 @@ extern "C" BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID) {
         Buh::set_up_tag_packs();
         Buh::set_up_loading_screen();
 
-        // Drawn in the world before the HUD in this order: shapes, and the post processes over them, the bloom
-        // working from the anti-aliased world and graded with it
+        // Drawn in the world before the HUD in this order: ambient occlusion on the opaque world, before its
+        // transparent surfaces; then shapes, and the post processes over them, the bloom working from the
+        // anti-aliased world and graded with it; then the depth view over all of it
         Buh::set_up_post();
+        Buh::set_up_depth();
+        Buh::set_up_ao();
         Buh::set_up_shapes();
         Buh::set_up_smaa();
         Buh::set_up_bloom();
         Buh::set_up_grading();
+        Buh::set_up_depth_view();
 
         // Drawn after the HUD in this order
         Buh::set_up_bink();
