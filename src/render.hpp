@@ -5,6 +5,9 @@
 
 #include <windows.h>
 #include <d3d9.h>
+#include <cstddef>
+
+#include "memory.hpp"
 
 namespace Buh {
     /**
@@ -52,6 +55,22 @@ namespace Buh {
      */
     using ResetCallback = void (*)();
     void add_reset_callback(ResetCallback callback) noexcept;
+
+    /**
+     * Hook an entry of a device's table of functions, the hook going on to what was there, and hook it again whenever
+     * it's been put back to that. Direct3D 9 puts the whole table back as BeginStateBlock is called, which D3DX's
+     * fonts and sprites do (Chimera draws its text with them) as they're first drawn, and again after each reset, so
+     * it's called each frame. Anything else's hook found in its place is left there.
+     */
+    template<typename Function> void hook_device_function(IDirect3DDevice9 *device, std::size_t index, Function hook, Function &original) noexcept {
+        auto **table = *reinterpret_cast<void ***>(device);
+        auto *entry = table[index];
+        if(entry == reinterpret_cast<void *>(hook) || (original && entry != reinterpret_cast<void *>(original))) {
+            return;
+        }
+        original = reinterpret_cast<Function>(entry);
+        overwrite(table + index, reinterpret_cast<void *>(hook));
+    }
 
     /**
      * Width of the HUD's 480 unit tall canvas: 640, or wider with Chimera's widescreen fix

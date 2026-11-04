@@ -90,29 +90,30 @@ namespace Buh {
         return buh_interface_draw != nullptr && window_parameters != nullptr;
     }
 
+    // The hooks are in the function table every device of Direct3D's (or a wrapper's) shares, so they're called for
+    // other devices in the process too (an overlay's, say), which are left alone
     static HRESULT __stdcall present(IDirect3DDevice9 *device, const RECT *source, const RECT *destination, HWND window, const RGNDATA *dirty) {
-        for(auto *callback : present_callbacks) {
-            callback(device);
+        if(device == halo_device()) {
+            for(auto *callback : present_callbacks) {
+                callback(device);
+            }
         }
         return original_present(device, source, destination, window, dirty);
     }
 
     static HRESULT __stdcall reset(IDirect3DDevice9 *device, D3DPRESENT_PARAMETERS *parameters) {
-        for(auto *callback : reset_callbacks) {
-            callback();
+        if(device == halo_device()) {
+            for(auto *callback : reset_callbacks) {
+                callback();
+            }
         }
         return original_reset(device, parameters);
     }
 
+    // Each time buh draws, as a D3DX font may have put the device's table back since (see hook_device_function)
     static void hook_device(IDirect3DDevice9 *device) noexcept {
-        if(original_present) {
-            return;
-        }
-        auto **vtable = *reinterpret_cast<void ***>(device);
-        original_present = reinterpret_cast<PresentFunction>(vtable[DEVICE_PRESENT_INDEX]);
-        original_reset = reinterpret_cast<ResetFunction>(vtable[DEVICE_RESET_INDEX]);
-        overwrite(vtable + DEVICE_PRESENT_INDEX, reinterpret_cast<void *>(present));
-        overwrite(vtable + DEVICE_RESET_INDEX, reinterpret_cast<void *>(reset));
+        hook_device_function(device, DEVICE_PRESENT_INDEX, present, original_present);
+        hook_device_function(device, DEVICE_RESET_INDEX, reset, original_reset);
     }
 
     extern "C" void buh_before_interface_draw() noexcept {
@@ -145,6 +146,7 @@ namespace Buh {
         if(!device || !drawing_screen()) {
             return;
         }
+        hook_device(device);
         for(auto *callback : hud_draw_callbacks) {
             callback(device, frame_seconds);
         }
