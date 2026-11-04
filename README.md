@@ -4,6 +4,8 @@ A [Chimera](https://github.com/SnowyMouse/chimera) mod for Halo: Combat Evolved.
 game's `mods` folder after it has applied its own patches, and buh patches the game on top of that without touching
 Chimera itself.
 
+Everything here is also on [buh's site](https://fdervish.github.io/buh/), a page at a time.
+
 ## Game state
 
 Halo carves most of its arrays out of a 0x440000 byte game state at 0x40000000, which can't grow there because the

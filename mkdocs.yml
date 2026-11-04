@@ -1,0 +1,94 @@
+site_name: buh
+site_description: A Chimera mod for Halo Combat Evolved
+site_url: https://fdervish.github.io/buh/
+repo_url: https://github.com/FDervish/buh
+repo_name: FDervish/buh
+edit_uri: edit/main/docs/
+copyright: buh is free software under the GPL-3.0
+
+# What the site is built with, which isn't a page of it
+exclude_docs: |
+  requirements.txt
+
+theme:
+  name: material
+  icon:
+    logo: material/ring
+    repo: fontawesome/brands/github
+  favicon: images/favicon.svg
+  palette:
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - navigation.instant
+    - search.highlight
+    - search.suggest
+    - content.code.copy
+    - content.action.edit
+    - toc.follow
+
+extra_css:
+  - stylesheets/extra.css
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/FDervish/buh
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - Engine:
+      - Game state: game-state.md
+      - Particles: particles.md
+      - Maps and models: maps-and-models.md
+  - Presentation:
+      - Loading screen: loading-screen.md
+      - Bloom: bloom.md
+      - Anti-aliasing: anti-aliasing.md
+      - Colour grading: color-grading.md
+      - Ambient occlusion: ambient-occlusion.md
+      - Sun shafts: sun-shafts.md
+      - Volumetric light: volumetric-light.md
+      - Motion blur: motion-blur.md
+      - The world's depth: depth.md
+      - HUD: hud.md
+      - Shapes: shapes.md
+      - Sprites: sprites.md
+      - Videos: videos.md
+      - Audio and subtitles: audio.md
+  - Lua functions: lua.md
+  - Tag packs: tag-packs.md
+  - Building: building.md
+  - License: license.md
