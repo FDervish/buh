@@ -29,6 +29,17 @@ namespace Buh {
     bool game_time_stopped() noexcept;
 
     /**
+     * An object's data, or nullptr if there's no such object (any more)
+     */
+    const std::byte *object_datum(std::uint32_t object) noexcept;
+
+    /**
+     * Which of the scenario's structure BSPs is loaded, as Halo's structure_bsp_index script function says: -1 for none,
+     * or -2 if buh couldn't find where Halo keeps it
+     */
+    int structure_bsp_index() noexcept;
+
+    /**
      * Where an object is in the world: its origin, or its centre while it's attached to another object (in a seat, or
      * held), when its origin is relative to that object
      * @return false if there's no such object
@@ -72,6 +83,7 @@ namespace Buh {
     bool collision_test(std::uint32_t flags, const float (&origin)[3], const float (&delta)[3], std::uint32_t ignore, CollisionHit &hit) noexcept;
 
     #define TAG_CLASS_BITMAP 0x6269746D
+    #define TAG_CLASS_DAMAGE_EFFECT 0x6A707421
     #define TAG_CLASS_FONT 0x666F6E74
     #define TAG_CLASS_GLOBALS 0x6D617467
     #define TAG_CLASS_HUD_GLOBALS 0x68756467
@@ -100,6 +112,18 @@ namespace Buh {
      */
     Tag *tag_array() noexcept;
     std::size_t tag_count() noexcept;
+
+    /**
+     * The loaded map's scenario tag's data, or nullptr
+     */
+    std::byte *scenario_data() noexcept;
+
+    /**
+     * One of Halo's script functions' definitions (hs_function_definition: return type, flags, then pointers to its
+     * name, parser, evaluator, help and usage), found by its name in Halo's image, or nullptr. Where two tables point
+     * at the same name, the one whose help is help comes first.
+     */
+    const std::byte *script_function(const char *name, const char *help) noexcept;
 
     /**
      * Whether a pointer read out of tag data points into tag space

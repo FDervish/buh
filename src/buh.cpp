@@ -5,8 +5,10 @@
 #include "audio/audio.hpp"
 #include "bink/bink.hpp"
 #include "console.hpp"
+#include "damage.hpp"
 #include "game_state.hpp"
 #include "halo.hpp"
+#include "hs.hpp"
 #include "hud/hud_elements.hpp"
 #include "hud/hud_skew.hpp"
 #include "loading/loading_screen.hpp"
@@ -22,7 +24,10 @@
 #include "render.hpp"
 #include "sound/sound_length.hpp"
 #include "sound/subtitles.hpp"
+#include "lua/lua.hpp"
+#include "lua/lua_damage.hpp"
 #include "lua/lua_draw.hpp"
+#include "lua/lua_hs.hpp"
 #include "sprites/shapes.hpp"
 #include "sprites/sprites.hpp"
 #include "text/text.hpp"
@@ -33,6 +38,7 @@
 extern "C" BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID) {
     if(reason == DLL_PROCESS_ATTACH) {
         Buh::set_up_halo();
+        Buh::set_up_hs();
         Buh::set_up_extend_effect_limits(Buh::set_up_extend_game_state());
         Buh::set_up_extend_render_limits();
         Buh::set_up_particle_culling_fix();
@@ -41,6 +47,8 @@ extern "C" BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID) {
 
         Buh::set_up_console();
         Buh::set_up_render();
+        Buh::set_up_damage();
+        Buh::set_up_lua();
         Buh::set_up_text();
         Buh::set_up_map_load();
         Buh::set_up_fog_reset();
@@ -57,6 +65,8 @@ extern "C" BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID) {
         Buh::set_up_lua_drawing();
         Buh::set_up_subtitles();
 
+        Buh::set_up_lua_damage();
+        Buh::set_up_lua_hs();
         Buh::set_up_sound_length();
         Buh::set_up_audio();
         Buh::set_up_hud_skew();

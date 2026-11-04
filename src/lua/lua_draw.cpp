@@ -3,16 +3,11 @@
 // Drawing for Chimera's Lua scripts: rectangles, lines, quads and circles on the HUD, lines, boxes and circles in the
 // world, and world_to_screen, each drawn in the frame a script draws it. And collision_test, Halo's own ray trace, and
 // get_hud_elements, set_hud_element and reset_hud_elements, which change how single HUD elements are drawn.
-//
-// Chimera exports every one of its Lua functions by name, and makes each script's Lua with one call to
-// luaL_openselectedlibs. That call is pointed here instead: once Chimera's libraries are open, buh adds its functions
-// through Chimera's own Lua. Nothing of Chimera's is matched by its bytes, and a Chimera that doesn't export its Lua
-// just doesn't get them. Chimera adds its own functions after, so where it has one by the same name, it's Chimera's.
 
 #include "lua_draw.hpp"
+#include "lua.hpp"
 #include "../halo.hpp"
 #include "../hud/hud_elements.hpp"
-#include "../memory.hpp"
 #include "../render.hpp"
 #include "../sprites/image.hpp"
 #include "../sprites/shapes.hpp"
@@ -22,13 +17,6 @@
 #include <cstring>
 #include <vector>
 
-#define LUA_TNONE (-1)
-#define LUA_TNIL 0
-#define LUA_TBOOLEAN 1
-#define LUA_TNUMBER 3
-#define LUA_TSTRING 4
-#define LUA_TTABLE 5
-
 // The HUD's units, which scripts draw in: 640 across and 480 down, whatever the screen's shape
 #define HUD_WIDTH 640.0
 #define HUD_HEIGHT 480.0
@@ -37,36 +25,7 @@
 
 #define MAXIMUM_LISTED_HUD_ELEMENTS 256
 
-struct lua_State;
-
 namespace Buh {
-    using LuaFunction = int (*)(lua_State *state);
-
-    // The Lua functions used here, Chimera's own
-    static struct {
-        int (*type)(lua_State *, int);
-        void (*settop)(lua_State *, int);
-        double (*tonumberx)(lua_State *, int, int *);
-        long long (*tointegerx)(lua_State *, int, int *);
-        int (*toboolean)(lua_State *, int);
-        const char *(*tolstring)(lua_State *, int, std::size_t *);
-        void (*pushnil)(lua_State *);
-        void (*pushnumber)(lua_State *, double);
-        void (*pushinteger)(lua_State *, long long);
-        const char *(*pushstring)(lua_State *, const char *);
-        void (*pushboolean)(lua_State *, int);
-        void (*createtable)(lua_State *, int, int);
-        void (*setfield)(lua_State *, int, const char *);
-        void (*rawseti)(lua_State *, int, long long);
-        void (*pushcclosure)(lua_State *, LuaFunction, int);
-        int (*getglobal)(lua_State *, const char *);
-        void (*setglobal)(lua_State *, const char *);
-        int (*getfield)(lua_State *, int, const char *);
-        int (*rawgeti)(lua_State *, int, long long);
-        int (*error)(lua_State *, const char *, ...);
-        void (*openselectedlibs)(lua_State *, int, int);
-    } lua = {};
-
     // The HUD shapes scripts drew for this frame
     struct QueuedShape {
         Shape shape;
@@ -337,6 +296,18 @@ namespace Buh {
         const double radius[3] = { v[3], 0.0, 0.0 };
         queue_world(WorldShape::CIRCLE, v, radius, v[4], v + 5, options);
         return 0;
+    }
+
+    // structure_bsp_index() -> the loaded structure BSP's index, -1 for none, or nil if buh couldn't find it
+    static int lua_structure_bsp_index(lua_State *state) noexcept {
+        int index = structure_bsp_index();
+        if(index == -2) {
+            lua.pushnil(state);
+        }
+        else {
+            lua.pushinteger(state, index);
+        }
+        return 1;
     }
 
     // world_to_screen(x, y, z) -> x, y, depth, or nil behind the camera
@@ -631,7 +602,10 @@ namespace Buh {
 
     // ---------------------------------------------------------------- scripts
 
-    static void add_functions(lua_State *state) noexcept {
+    void set_up_lua_drawing() noexcept {
+        if(!lua_available() || !hud_drawing_available()) {
+            return;
+        }
         static const struct {
             const char *name;
             LuaFunction function;
@@ -645,89 +619,16 @@ namespace Buh {
             { "draw_box_3d", lua_draw_box_3d },
             { "draw_circle_3d", lua_draw_circle_3d },
             { "collision_test", lua_collision_test },
+            { "structure_bsp_index", lua_structure_bsp_index },
             { "get_hud_elements", lua_get_hud_elements },
             { "set_hud_element", lua_set_hud_element },
             { "reset_hud_elements", lua_reset_hud_elements },
         };
         for(auto &function : functions) {
-            bool taken = lua.getglobal(state, function.name) != LUA_TNIL;
-            lua.settop(state, -2);
-            if(!taken) {
-                lua.pushcclosure(state, function.function, 0);
-                lua.setglobal(state, function.name);
-            }
-        }
-    }
-
-    // Stands in for luaL_openselectedlibs where Chimera makes a script's Lua
-    static void open_libraries(lua_State *state, int load, int preload) noexcept {
-        lua.openselectedlibs(state, load, preload);
-        add_functions(state);
-    }
-
-    template<typename T> static bool resolve(HMODULE module, const char *name, T &function) noexcept {
-        auto *address = reinterpret_cast<void *>(GetProcAddress(module, name));
-        function = reinterpret_cast<T>(address);
-        return address != nullptr;
-    }
-
-    // Every direct call to target in a module's code
-    static std::vector<std::byte *> calls_to(HMODULE module, const void *target) {
-        std::vector<std::byte *> calls;
-        auto *base = reinterpret_cast<std::byte *>(module);
-        auto *dos = reinterpret_cast<const IMAGE_DOS_HEADER *>(base);
-        auto *nt = reinterpret_cast<const IMAGE_NT_HEADERS32 *>(base + dos->e_lfanew);
-        auto *section = reinterpret_cast<const IMAGE_SECTION_HEADER *>(reinterpret_cast<const std::byte *>(&nt->OptionalHeader) + nt->FileHeader.SizeOfOptionalHeader);
-        for(WORD i = 0; i < nt->FileHeader.NumberOfSections; i++, section++) {
-            if(!(section->Characteristics & IMAGE_SCN_MEM_EXECUTE)) {
-                continue;
-            }
-            auto *start = base + section->VirtualAddress;
-            for(std::size_t at = 0; at + 5 <= section->Misc.VirtualSize; at++) {
-                if(start[at] != std::byte { 0xE8 }) {
-                    continue;
-                }
-                std::int32_t relative;
-                std::memcpy(&relative, start + at + 1, sizeof(relative));
-                if(start + at + 5 + relative == target) {
-                    calls.push_back(start + at);
-                }
-            }
-        }
-        return calls;
-    }
-
-    void set_up_lua_drawing(HMODULE module) noexcept {
-        if(!module || !hud_drawing_available()) {
-            return;
-        }
-        bool found = resolve(module, "lua_type", lua.type) && resolve(module, "lua_settop", lua.settop)
-            && resolve(module, "lua_tonumberx", lua.tonumberx) && resolve(module, "lua_tointegerx", lua.tointegerx)
-            && resolve(module, "lua_toboolean", lua.toboolean) && resolve(module, "lua_tolstring", lua.tolstring)
-            && resolve(module, "lua_pushnil", lua.pushnil) && resolve(module, "lua_pushnumber", lua.pushnumber)
-            && resolve(module, "lua_pushinteger", lua.pushinteger) && resolve(module, "lua_pushstring", lua.pushstring)
-            && resolve(module, "lua_pushboolean", lua.pushboolean) && resolve(module, "lua_createtable", lua.createtable)
-            && resolve(module, "lua_setfield", lua.setfield) && resolve(module, "lua_rawseti", lua.rawseti)
-            && resolve(module, "lua_pushcclosure", lua.pushcclosure) && resolve(module, "lua_getglobal", lua.getglobal)
-            && resolve(module, "lua_setglobal", lua.setglobal) && resolve(module, "lua_getfield", lua.getfield)
-            && resolve(module, "lua_rawgeti", lua.rawgeti) && resolve(module, "luaL_error", lua.error)
-            && resolve(module, "luaL_openselectedlibs", lua.openselectedlibs);
-        if(!found) {
-            return;
-        }
-        auto calls = calls_to(module, reinterpret_cast<const void *>(lua.openselectedlibs));
-        if(calls.empty()) {
-            return;
-        }
-        for(auto *call : calls) {
-            retarget_call(call, reinterpret_cast<const void *>(open_libraries));
+            add_lua_function(function.name, function.function);
         }
         add_hud_draw_callback(draw_queued);
         add_present_callback(end_frame);
         add_reset_callback(reset);
-    }
-
-    void set_up_lua_drawing() noexcept {
-        set_up_lua_drawing(GetModuleHandleA("strings.dll"));
     }
 }

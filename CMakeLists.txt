@@ -54,8 +54,10 @@ add_library(buh MODULE
     src/bink/bink_player.cpp
     src/console.cpp
     src/console.S
+    src/damage.cpp
     src/game_state.cpp
     src/halo.cpp
+    src/hs.cpp
     src/hud/hud_elements.cpp
     src/hud/hud_elements.S
     src/hud/hud_skew.cpp
@@ -84,7 +86,10 @@ add_library(buh MODULE
     src/sound/sound_length.cpp
     src/sound/subtitles.cpp
     src/sound/subtitles.S
+    src/lua/lua.cpp
+    src/lua/lua_damage.cpp
     src/lua/lua_draw.cpp
+    src/lua/lua_hs.cpp
     src/sprites/image.cpp
     src/sprites/shapes.cpp
     src/sprites/sprites.cpp

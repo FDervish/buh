@@ -23,6 +23,22 @@ namespace Buh {
     std::vector<std::byte *> find_value_in_code(std::uint32_t value) noexcept;
 
     /**
+     * Find every occurrence of some bytes anywhere in Halo's image: its code, its data and its strings.
+     */
+    std::vector<std::byte *> find_in_image(const void *bytes, std::size_t size) noexcept;
+
+    /**
+     * Whether memory lies within one of the sections of Halo's image, so it can be read (and, with code, within its
+     * code).
+     */
+    bool image_contains(const void *address, std::size_t size, bool code = false) noexcept;
+
+    /**
+     * Every call rel32 to a function in a module's code: Halo's, unless it's another module
+     */
+    std::vector<std::byte *> find_calls(const void *function, HMODULE module = nullptr) noexcept;
+
+    /**
      * Overwrite memory even if it is read-only.
      */
     template<typename T> inline void overwrite(void *pointer, const T *data, std::size_t length) noexcept {

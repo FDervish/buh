@@ -4,6 +4,7 @@
 #include "memory.hpp"
 
 #include <cstring>
+#include <string>
 
 // The tag data header is always here on Custom Edition, and Chimera grows tag space to 64 MiB
 #define TAG_DATA_ADDRESS 0x40440000
@@ -42,6 +43,8 @@ namespace Buh {
     static CollisionTestVector collision_test_vector = nullptr;
     // The loaded level's collision geometry, or nullptr between maps
     static const void *const *collision_bsp = nullptr;
+    // Which structure BSP is loaded
+    static const std::int16_t *structure_bsp_index_global = nullptr;
 
     struct TagDataHeader {
         Tag *tag_array;
@@ -69,6 +72,10 @@ namespace Buh {
 
     bool console_open() noexcept {
         return console && *console;
+    }
+
+    int structure_bsp_index() noexcept {
+        return structure_bsp_index_global ? *structure_bsp_index_global : -2;
     }
 
     void set_game_paused(bool paused) noexcept {
@@ -104,16 +111,21 @@ namespace Buh {
         std::memcpy(&datum, slot + OBJECT_SLOT_OBJECT, sizeof(datum));
     }
 
-    bool object_position(std::uint32_t object, float (&position)[3]) noexcept {
+    const std::byte *object_datum(std::uint32_t object) noexcept {
         const std::byte *slots;
         std::uint16_t size;
         if(object == 0xFFFFFFFF || !object_slots(slots, size) || (object & 0xFFFF) >= size) {
-            return false;
+            return nullptr;
         }
         std::uint16_t salt;
         const std::byte *datum;
         object_slot(slots, static_cast<std::uint16_t>(object & 0xFFFF), salt, datum);
-        if(salt != object >> 16 || !datum) {
+        return salt == object >> 16 ? datum : nullptr;
+    }
+
+    bool object_position(std::uint32_t object, float (&position)[3]) noexcept {
+        auto *datum = object_datum(object);
+        if(!datum) {
             return false;
         }
         std::uint32_t parent;
@@ -193,6 +205,11 @@ namespace Buh {
         return tag_data_header().tag_array;
     }
 
+    std::byte *scenario_data() noexcept {
+        auto *tag = tag_array() ? get_tag(tag_data_header().scenario_tag) : nullptr;
+        return tag ? tag->data : nullptr;
+    }
+
     std::size_t tag_count() noexcept {
         return tag_array() ? tag_data_header().tag_count : 0;
     }
@@ -223,7 +240,67 @@ namespace Buh {
         return reinterpret_cast<T *>(address);
     }
 
+    // A script function's definition, found by its name: its return type and flags, then pointers to its name, parser,
+    // evaluator, help and usage (hs_function_definition). Its evaluator has to be code; one whose help is the help asked
+    // for comes first, in case another table points at the same name.
+    const std::byte *script_function(const char *name, const char *help) noexcept {
+        // The whole name, with the NUL before it too, so a longer name that ends in it doesn't count
+        std::string pattern = std::string(1, '\0') + name;
+        pattern.push_back('\0');
+        const std::byte *fallback = nullptr;
+        for(auto *found : find_in_image(pattern.data(), pattern.size())) {
+            auto string = reinterpret_cast<std::uint32_t>(found + 1);
+            for(auto *site : find_in_image(&string, sizeof(string))) {
+                auto *definition = site - 4;
+                if(!image_contains(definition, 0x18) || !image_contains(read_address<const std::byte>(definition + 0xC), 1, true)) {
+                    continue;
+                }
+                auto *help_text = read_address<const char>(definition + 0x10);
+                if(image_contains(help_text, std::strlen(help) + 1) && std::strcmp(help_text, help) == 0) {
+                    return definition;
+                }
+                fallback = fallback ? fallback : definition;
+            }
+        }
+        return fallback;
+    }
+
+    // The 16-bit global a short piece of code loads first: mov ax, [address]; movsx or movzx r32, word [address]; or
+    // mov r16, [address]. Through one call, if it calls a getter for it. It stops at a ret, so as not to read on into
+    // the next function; one inside an instruction stops it early, and then it's found nothing, not something wrong.
+    static const std::int16_t *word_global_loaded(const std::byte *code, bool through_a_call) noexcept {
+        for(std::size_t i = 0; i < 0x30 && image_contains(code + i, 7, true); i++) {
+            auto *at = code + i;
+            auto byte = [at](std::size_t n) { return std::to_integer<std::uint8_t>(at[n]); };
+            if(byte(0) == 0xC3) {
+                break;
+            }
+            const std::int16_t *global = nullptr;
+            if(byte(0) == 0x66 && byte(1) == 0xA1) {
+                global = read_address<const std::int16_t>(at + 2);
+            }
+            else if(byte(0) == 0x0F && (byte(1) == 0xBF || byte(1) == 0xB7) && (byte(2) & 0xC7) == 0x05) {
+                global = read_address<const std::int16_t>(at + 3);
+            }
+            else if(byte(0) == 0x66 && byte(1) == 0x8B && (byte(2) & 0xC7) == 0x05) {
+                global = read_address<const std::int16_t>(at + 3);
+            }
+            else if(through_a_call && byte(0) == 0xE8) {
+                global = word_global_loaded(branch_target(at), false);
+            }
+            if(global && image_contains(global, sizeof(*global))) {
+                return global;
+            }
+        }
+        return nullptr;
+    }
+
     void set_up_halo() noexcept {
+        // Halo's own structure_bsp_index script function, and the global its evaluator reads
+        if(auto *definition = script_function("structure_bsp_index", "returns the current structure bsp index")) {
+            structure_bsp_index_global = word_global_loaded(read_address<const std::byte>(definition + 0xC), true);
+        }
+
         // Halo's own Bink player, which reads the device from a global
         auto *halo_player = find_signature({ 0x83, 0xEC, 0x68, 0xA1, -1, -1, -1, -1, 0x53, 0x33, 0xDB, 0x3B, 0xC3, 0x89, 0x5C, 0x24, 0x0C, 0x89, 0x5C, 0x24, 0x08, 0x88, 0x5C, 0x24, 0x05, 0xC6, 0x44, 0x24, 0x06, 0x01, 0x88, 0x5C, 0x24, 0x07, 0x0F, 0x85, -1, -1, -1, -1, 0xA1, -1, -1, -1, -1, 0x8B, 0x08, 0x53, 0x8D, 0x54, 0x24, 0x0C, 0x52, 0x53, 0x6A, 0x16 });
         auto *time_globals = find_signature({ 0x8B, 0x15, -1, -1, -1, -1, 0x8A, 0x42, 0x02, 0x84, 0xC0, 0x75, 0x22, 0x8B, 0x0D });

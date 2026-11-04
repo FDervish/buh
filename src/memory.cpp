@@ -8,24 +8,61 @@ namespace Buh {
     struct CodeSection {
         std::byte *address;
         std::size_t size;
+        bool code;
     };
 
+    // A module's sections: its code, or all of them
+    static std::vector<CodeSection> module_sections(HMODULE module, bool code_only) noexcept {
+        std::vector<CodeSection> found;
+        auto *base = reinterpret_cast<std::byte *>(module);
+        auto *dos = reinterpret_cast<const IMAGE_DOS_HEADER *>(base);
+        auto *nt = reinterpret_cast<const IMAGE_NT_HEADERS32 *>(base + dos->e_lfanew);
+        auto *section = reinterpret_cast<const IMAGE_SECTION_HEADER *>(reinterpret_cast<const std::byte *>(&nt->OptionalHeader) + nt->FileHeader.SizeOfOptionalHeader);
+        for(std::size_t i = 0; i < nt->FileHeader.NumberOfSections; i++, section++) {
+            bool code = section->Characteristics & IMAGE_SCN_MEM_EXECUTE;
+            if(code || !code_only) {
+                std::size_t size = section->Misc.VirtualSize ? section->Misc.VirtualSize : section->SizeOfRawData;
+                found.push_back({ base + section->VirtualAddress, size, code });
+            }
+        }
+        return found;
+    }
+
+    static std::vector<CodeSection> module_code_sections(HMODULE module) noexcept {
+        return module_sections(module, true);
+    }
+
     static const std::vector<CodeSection> &code_sections() noexcept {
-        static const auto sections = [] {
-            std::vector<CodeSection> found;
-            auto *base = reinterpret_cast<std::byte *>(GetModuleHandle(nullptr));
-            auto *dos = reinterpret_cast<const IMAGE_DOS_HEADER *>(base);
-            auto *nt = reinterpret_cast<const IMAGE_NT_HEADERS32 *>(base + dos->e_lfanew);
-            auto *section = reinterpret_cast<const IMAGE_SECTION_HEADER *>(reinterpret_cast<const std::byte *>(&nt->OptionalHeader) + nt->FileHeader.SizeOfOptionalHeader);
-            for(std::size_t i = 0; i < nt->FileHeader.NumberOfSections; i++, section++) {
-                if(section->Characteristics & IMAGE_SCN_MEM_EXECUTE) {
-                    std::size_t size = section->Misc.VirtualSize ? section->Misc.VirtualSize : section->SizeOfRawData;
-                    found.push_back({ base + section->VirtualAddress, size });
+        static const auto sections = module_code_sections(GetModuleHandle(nullptr));
+        return sections;
+    }
+
+    static const std::vector<CodeSection> &image_sections() noexcept {
+        static const auto sections = module_sections(GetModuleHandle(nullptr), false);
+        return sections;
+    }
+
+    std::vector<std::byte *> find_in_image(const void *bytes, std::size_t size) noexcept {
+        std::vector<std::byte *> sites;
+        auto *wanted = static_cast<const std::byte *>(bytes);
+        for(auto &section : image_sections()) {
+            for(std::size_t offset = 0; offset + size <= section.size; offset++) {
+                if(std::memcmp(section.address + offset, wanted, size) == 0) {
+                    sites.push_back(section.address + offset);
                 }
             }
-            return found;
-        }();
-        return sections;
+        }
+        return sites;
+    }
+
+    bool image_contains(const void *address, std::size_t size, bool code) noexcept {
+        auto *at = static_cast<const std::byte *>(address);
+        for(auto &section : image_sections()) {
+            if(at >= section.address && at + size <= section.address + section.size && (section.code || !code)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     std::byte *find_signature(std::initializer_list<std::int16_t> pattern) noexcept {
@@ -56,6 +93,19 @@ namespace Buh {
             }
         }
         return sites;
+    }
+
+    std::vector<std::byte *> find_calls(const void *function, HMODULE module) noexcept {
+        std::vector<std::byte *> calls;
+        for(auto &section : module ? module_code_sections(module) : code_sections()) {
+            for(std::size_t offset = 0; offset + 5 <= section.size; offset++) {
+                auto *at = section.address + offset;
+                if(*at == std::byte { 0xE8 } && branch_target(at) == function) {
+                    calls.push_back(at);
+                }
+            }
+        }
+        return calls;
     }
 
     void fill_with_nops(std::byte *address, std::size_t length) noexcept {
