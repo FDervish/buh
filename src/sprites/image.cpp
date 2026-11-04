@@ -86,6 +86,33 @@ namespace Buh {
         return texture;
     }
 
+    bool decode_image(const wchar_t *path, std::vector<std::uint32_t> &pixels, UINT &width, UINT &height) noexcept {
+        auto *wic = factory();
+        IWICBitmapDecoder *decoder = nullptr;
+        IWICBitmapFrameDecode *frame = nullptr;
+        IWICFormatConverter *converter = nullptr;
+        bool decoded = wic
+            && wic->CreateDecoderFromFilename(path, nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &decoder) >= 0
+            && decoder->GetFrame(0, &frame) >= 0
+            && frame->GetSize(&width, &height) >= 0
+            && width > 0 && height > 0
+            && wic->CreateFormatConverter(&converter) >= 0
+            && converter->Initialize(frame, GUID_WICPixelFormat32bppBGRA, WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom) >= 0;
+        if(decoded) {
+            try {
+                pixels.assign(static_cast<std::size_t>(width) * height, 0);
+                decoded = converter->CopyPixels(nullptr, width * 4, width * height * 4, reinterpret_cast<BYTE *>(pixels.data())) >= 0;
+            }
+            catch(...) {
+                decoded = false;
+            }
+        }
+        release(converter);
+        release(frame);
+        release(decoder);
+        return decoded;
+    }
+
     struct ImageVertex {
         float x;
         float y;

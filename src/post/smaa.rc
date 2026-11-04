@@ -1,0 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+
+// SMAA's lookup textures (see smaa/README.md): the area texture, 160 x 560 at two bytes a pixel, and the search
+// texture, 64 x 16 at one
+SMAA_AREA_TEXTURE RCDATA "smaa/area_tex.bin"
+SMAA_SEARCH_TEXTURE RCDATA "smaa/search_tex.bin"

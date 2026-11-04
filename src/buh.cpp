@@ -21,6 +21,10 @@
 #include "particles/extend_render_limits.hpp"
 #include "particles/particle_culling.hpp"
 #include "particles/particle_depth_sort.hpp"
+#include "post/bloom.hpp"
+#include "post/grading.hpp"
+#include "post/post.hpp"
+#include "post/smaa.hpp"
 #include "render.hpp"
 #include "sound/sound_length.hpp"
 #include "sound/subtitles.hpp"
@@ -56,8 +60,13 @@ extern "C" BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID) {
         Buh::set_up_tag_packs();
         Buh::set_up_loading_screen();
 
-        // Drawn in the world before the HUD
+        // Drawn in the world before the HUD in this order: shapes, and the post processes over them, the bloom
+        // working from the anti-aliased world and graded with it
+        Buh::set_up_post();
         Buh::set_up_shapes();
+        Buh::set_up_smaa();
+        Buh::set_up_bloom();
+        Buh::set_up_grading();
 
         // Drawn after the HUD in this order
         Buh::set_up_bink();

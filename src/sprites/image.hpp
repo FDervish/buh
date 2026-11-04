@@ -6,6 +6,8 @@
 #include <windows.h>
 #include <d3d9.h>
 #include <cstddef>
+#include <cstdint>
+#include <vector>
 
 namespace Buh {
     /**
@@ -19,6 +21,12 @@ namespace Buh {
      * (a quarter of the memory) where the device has them; its red, green and blue all read the same either way.
      */
     IDirect3DTexture9 *load_image(IDirect3DDevice9 *device, const void *data, std::size_t size, bool gray, UINT &width, UINT &height) noexcept;
+
+    /**
+     * Decode an image file to straight BGRA pixels (D3DFMT_A8R8G8B8's layout), one row after another
+     * @return false if it couldn't be
+     */
+    bool decode_image(const wchar_t *path, std::vector<std::uint32_t> &pixels, UINT &width, UINT &height) noexcept;
 
     /**
      * A corner of an image on screen: where it goes, in pixels, and which part of the image it shows, from 0 to 1

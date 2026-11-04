@@ -1,8 +1,10 @@
-"""Compile a pixel shader into a C header, with the d3dcompiler_47.dll Windows has.
+"""Compile pixel shaders into a C header, with the d3dcompiler_47.dll Windows has.
 
     python tools/compile_shader.py src/loading/loading_screen_shader.hlsl LoadScreenPS loading_screen_shader
 
-writes src/loading/loading_screen_shader.h next to the source, holding the ps_3_0 bytecode as a DWORD array.
+writes src/loading/loading_screen_shader.h next to the source, holding the ps_3_0 bytecode as a DWORD array. More
+entry points and names after the first pair go in the same header, an array each. An entry point compiled for another
+target names it after a colon, as MotionVS:vs_3_0.
 """
 import ctypes
 import pathlib
@@ -10,6 +12,9 @@ import struct
 import sys
 
 D3DCOMPILE_OPTIMIZATION_LEVEL3 = 1 << 15
+
+# D3D_COMPILE_STANDARD_FILE_INCLUDE: #include finds files next to the source
+STANDARD_FILE_INCLUDE = ctypes.c_void_p(1)
 
 
 def blob_bytes(blob):
@@ -26,8 +31,8 @@ def compile_shader(source, entry, target):
     compiler = ctypes.WinDLL('d3dcompiler_47.dll')
     code, errors = ctypes.c_void_p(), ctypes.c_void_p()
     text = source.read_bytes()
-    result = compiler.D3DCompile(text, len(text), str(source.name).encode(), None, None, entry.encode(), target.encode(),
-                                 D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, ctypes.byref(code), ctypes.byref(errors))
+    result = compiler.D3DCompile(text, len(text), str(source.resolve()).encode(), None, STANDARD_FILE_INCLUDE, entry.encode(),
+                                 target.encode(), D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, ctypes.byref(code), ctypes.byref(errors))
     messages = blob_bytes(errors).decode(errors='replace') if errors.value else ''
     if result < 0 or not code.value:
         raise SystemExit(f'{source.name} did not compile ({result & 0xFFFFFFFF:#x}):\n{messages}')
@@ -36,19 +41,37 @@ def compile_shader(source, entry, target):
     return blob_bytes(code)
 
 
-def main():
-    source, entry, name = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
-    bytecode = compile_shader(source, entry, 'ps_3_0')
+def array(name, bytecode):
     words = struct.unpack(f'<{len(bytecode) // 4}I', bytecode)
     lines = [', '.join(f'0x{w:08X}' for w in words[i:i + 8]) for i in range(0, len(words), 8)]
+    return f'static const DWORD {name}[] = {{\n    ' + ',\n    '.join(lines) + '\n};\n\n'
+
+
+def main():
+    source, pairs = pathlib.Path(sys.argv[1]), sys.argv[2:]
+    if not pairs or len(pairs) % 2:
+        raise SystemExit('usage: compile_shader.py <source.hlsl> <entry> <name> [<entry> <name> ...]')
+    entries, targets = [], []
+    for entry in pairs[0::2]:
+        entry, _, target = entry.partition(':')
+        entries.append(entry)
+        targets.append(target or 'ps_3_0')
+    arrays = []
+    for entry, target, name in zip(entries, targets, pairs[1::2]):
+        bytecode = compile_shader(source, entry, target)
+        arrays.append(array(name, bytecode))
+        print(f'{name}: {len(bytecode)} bytes')
+    if all(target == 'ps_3_0' for target in targets):
+        compiled = f'{", ".join(entries)}, ps_3_0'
+    else:
+        compiled = ', '.join(f'{entry} {target}' for entry, target in zip(entries, targets))
     header = source.with_suffix('.h')
-    guard = f'BUH_{name.upper()}_H'
+    guard = f'BUH_{source.stem.upper()}_H'
     with open(header, 'w', newline='\n') as out:
-        out.write(f'// SPDX-License-Identifier: GPL-3.0-only\n//\n// {source.name} ({entry}, ps_3_0), compiled by '
+        out.write(f'// SPDX-License-Identifier: GPL-3.0-only\n//\n// {source.name} ({compiled}), compiled by '
                   f'tools/compile_shader.py. Edit the source and run that again instead.\n\n'
-                  f'#ifndef {guard}\n#define {guard}\n\n#include <windows.h>\n\n'
-                  f'static const DWORD {name}[] = {{\n    ' + ',\n    '.join(lines) + '\n};\n\n#endif\n')
-    print(f'{header}: {len(bytecode)} bytes')
+                  f'#ifndef {guard}\n#define {guard}\n\n#include <windows.h>\n\n' + ''.join(arrays) + '#endif\n')
+    print(header)
 
 
 if __name__ == '__main__':

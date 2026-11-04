@@ -384,6 +384,53 @@ It needs pixel shader 3.0, which any card from the last fifteen years or so has;
 The shader, picture and tone are built into buh. `tools/compile_shader.py` rebuilds the shader's header from its
 source.
 
+## Bloom
+
+`buh_bloom [true|false]` makes the world bloom the way Halo: Reach's does. Lights, plasma and bright skies glow, the
+whole picture gets a faint soft glow, and the picture itself stays as sharp as it was. It's drawn before the HUD, so
+the HUD, menus and console stay sharp. It's off by default; put `buh_bloom true` in `init.txt` to keep it on.
+
+Halo draws the world at 8 bits a channel, where a light is no brighter than a white wall. So the closer a pixel's
+brightest channel is to white, the harder it's pushed before the threshold, so lights bloom and lit walls mostly
+don't. Each pixel is weighed before anything is blurred, so small lights bloom too and don't pulse as they move. The
+bloom is worked out at half size and smaller and only added to the world, which is never blurred. It's screen blended
+and tone mapped so it can't clip, and dithered so faint glows don't band.
+
+- `buh_bloom_threshold [brightness]` (0 to 1, 0.8 by default): how bright a pixel's brightest channel is before it
+  blooms. Raise it on snowy or white maps.
+- `buh_bloom_intensity [amount]` (0 to 4, 0.25 by default): how much what's past the threshold blooms.
+- `buh_bloom_glow [amount]` (0 to 1, 0.05 by default): how much all of the world glows, past the threshold or not.
+- `buh_bloom_spread [amount]` (0 to 1, 0.7 by default): how far it spreads.
+
+They work from `init.txt`, the console and Chimera Lua's `execute_script`, so a map's script can set its own. It
+needs pixel shader 3.0 and filterable half float render targets; without them it says so and stays off.
+`tools/compile_shader.py` rebuilds the shaders' header from `src/post/bloom_shaders.hlsl`.
+
+## Anti-aliasing
+
+`buh_smaa [true|false]` smooths the world's jagged edges with [SMAA](https://github.com/iryoku/smaa) (its high
+preset), which Halo has none of. It's off by default; put `buh_smaa true` in `init.txt` to keep it on. It runs before
+the bloom, colour grading and the HUD, so the bloom works from smoothed edges and the HUD stays sharp. Pixels away
+from edges aren't touched, and where the card can read and write sRGB, edges are blended in linear light. Detail
+smaller than a pixel can still shimmer; your driver's downsampling (DSR, DLDSR or VSR) fixes that, with SMAA on top.
+It needs pixel shader 3.0.
+
+## Colour grading
+
+`buh_color_grading [true|false]` grades the world's colours, last before the HUD, so the bloom is graded too. It's off
+by default, and changes nothing until there's something to grade.
+
+- `buh_color_grading_temperature [amount]` (-1 to 1, 0 by default): warmer above 0, cooler below.
+- `buh_color_grading_saturation [amount]` (0 to 2, 1 by default).
+- `buh_color_grading_contrast [amount]` (0.5 to 2, 1 by default): an S curve that keeps black and white.
+- `buh_color_grading_strength [amount]` (0 to 1, 1 by default): how much of the grade to use.
+- `buh_color_grading_lut [file|none]`: a LUT strip (N² by N, a square for each step of blue, red across and green
+  down, as ReShade's LUT shader reads it). `python tools/neutral_lut.py lut.png` writes a neutral one to grade in an
+  image editor along with a screenshot. The adjustments go on top of it.
+
+Like the bloom's, they work from `init.txt`, the console and `execute_script`, so each map can have its own grade. It
+needs pixel shader 3.0 and volume textures.
+
 ## Models
 
 Picking a model region's permutation copies every candidate into a 32 slot buffer without checking how many there
@@ -504,3 +551,6 @@ The loading screen's tone is Xbox Halo's own, from its loading screen.
 `soloud_wasapi.cpp` says how); the rest is unmodified.
 
 `tools/definitions` holds [Invader](https://github.com/SnowyMouse/invader)'s tag definitions, GPL-3.0.
+
+[SMAA](https://github.com/iryoku/smaa)'s shader and lookup textures are in `src/post/smaa`, unmodified, under the MIT
+license (`src/post/smaa/LICENSE`).
