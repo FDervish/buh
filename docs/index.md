@@ -6,7 +6,7 @@ hide:
 
 # buh
 
-A [Chimera](https://github.com/SnowyMouse/chimera) mod for Halo: Combat Evolved. Chimera loads every DLL in the
+A [Chimera](https://github.com/SnowyMouse/chimera) mod for Halo: Custom Edition. Chimera loads every DLL in the
 game's `mods` folder after it has applied its own patches, and buh patches the game on top of that without touching
 Chimera itself.
 

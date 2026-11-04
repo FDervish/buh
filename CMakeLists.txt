@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.16)
 
 project(buh
     VERSION 0.1.0
-    DESCRIPTION "Chimera mod for Halo Combat Evolved"
+    DESCRIPTION "Chimera mod for Halo Custom Edition"
     LANGUAGES C CXX ASM RC
 )
 
