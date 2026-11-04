@@ -108,7 +108,7 @@ namespace Buh {
         return brightest > 0.0F;
     }
 
-    static bool sun_now(float direction[3], float color[3]) noexcept {
+    bool current_sun(float direction[3], float color[3]) noexcept {
         if(given_direction) {
             direction_from(given_yaw * 3.14159265F / 180.0F, given_pitch * 3.14159265F / 180.0F, direction);
             float map_direction[3];
@@ -210,7 +210,7 @@ namespace Buh {
         float direction[3];
         float color[3];
         float u, v, facing;
-        if(!sun_now(direction, color) || !sun_on_screen(direction, u, v, facing) || !prepare(device)) {
+        if(!current_sun(direction, color) || !sun_on_screen(direction, u, v, facing) || !prepare(device)) {
             return;
         }
         PostFrame frame;

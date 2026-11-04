@@ -433,9 +433,9 @@ needs pixel shader 3.0 and volume textures.
 
 ## The world's depth
 
-Ambient occlusion, sun shafts and motion blur work from the world's depth. Halo's depth buffer can't be read, so while
-one of them is on, Halo draws into one that can be (an INTZ depth texture) in its place; once none is on, Halo's own
-goes back. It needs a card that reads INTZ depth textures, and no multisampling forced on in the driver.
+Ambient occlusion, sun shafts, volumetric light and motion blur work from the world's depth. Halo's depth buffer can't
+be read, so while one of them is on, Halo draws into one that can be (an INTZ depth texture) in its place; once none is
+on, Halo's own goes back. It needs a card that reads INTZ depth textures, and no multisampling forced on in the driver.
 
 - `buh_depth_view [true|false]`: show what buh reads in place of the world. Near is white fading to black, the sky
   blue and first person things red. If it looks like that in game, the depth effects have what they need. If the
@@ -469,6 +469,22 @@ by default.
 - `buh_sun_shafts_intensity [amount]` (0 to 4, 1 by default)
 - `buh_sun_shafts_length [amount]` (0 to 1, 0.75 by default): how far toward the sun they reach.
 - `buh_sun_shafts_direction [<yaw> <pitch>|map]`: where the sun is, in degrees, or the map's.
+
+## Volumetric light
+
+`buh_volumetric_light [true|false]` lights the air, so sunlight through a doorway or a gap shows as a shaft from any
+side, not just toward the sun, and Halo's dynamic lights glow in the air around them. The sun (the sun shafts' sun) is
+shadowed by the level's collision geometry, drawn from the sun into a shadow map around the camera, all but the sky's,
+invisible and see-through polygons. Each pixel's way to the world is stepped along at half size, scattered forward more
+than to the side. Where the sun lights all of the way, the air only hazes; where shadow breaks it up, the shafts show
+in full. The sixteen dynamic lights that matter most are worked out whole along the way, cones and all, and stop at
+the world in front of them. It's blurred by distance, brought back to full size, and screen blended over the world
+before the motion blur and the bloom. Off by default.
+
+- `buh_volumetric_light_intensity [amount]` (0 to 4, 1 by default): the sun's.
+- `buh_volumetric_light_haze [amount]` (0 to 1, 0.1 by default): how much air the sun lights all the way through
+  glows; 0 leaves only the shafts.
+- `buh_volumetric_light_lights [amount]` (0 to 4, 1 by default): the dynamic lights'.
 
 ## Motion blur
 

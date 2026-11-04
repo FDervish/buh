@@ -62,6 +62,12 @@ namespace Buh {
     void draw_post_world(IDirect3DDevice9 *device, const PostFrame &frame) noexcept;
 
     /**
+     * Put back the states post passes draw with, and no depth buffer, after a post process has drawn geometry of its
+     * own in its frame (with a vertex shader of its own, say, or into a depth buffer of its own)
+     */
+    void reset_post_drawing(IDirect3DDevice9 *device) noexcept;
+
+    /**
      * Whether the device has pixel shader 3.0, which post processes are written for, and make them
      * @return false if it hasn't or they couldn't be made, with any that were released
      */

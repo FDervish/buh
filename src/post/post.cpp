@@ -188,6 +188,11 @@ namespace Buh {
         device->SetRenderState(D3DRS_COLORWRITEENABLE, 0xF);
     }
 
+    void reset_post_drawing(IDirect3DDevice9 *device) noexcept {
+        device->SetDepthStencilSurface(nullptr);
+        set_states(device);
+    }
+
     bool post_format_supported(IDirect3DDevice9 *device, DWORD usage, D3DRESOURCETYPE type, D3DFORMAT format) noexcept {
         IDirect3D9 *direct3d = nullptr;
         D3DDEVICE_CREATION_PARAMETERS creation;

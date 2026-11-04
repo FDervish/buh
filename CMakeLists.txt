@@ -91,6 +91,7 @@ add_library(buh MODULE
     src/post/shafts.cpp
     src/post/smaa.cpp
     src/post/smaa.rc
+    src/post/volumetric_light.cpp
     src/render.cpp
     src/render.S
     src/sound/sound_length.cpp

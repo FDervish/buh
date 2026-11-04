@@ -3,6 +3,7 @@
 #include "halo.hpp"
 #include "memory.hpp"
 
+#include <algorithm>
 #include <cstring>
 #include <string>
 
@@ -57,8 +58,14 @@ namespace Buh {
     static CollisionTestVector collision_test_vector = nullptr;
     // The loaded level's collision geometry, or nullptr between maps
     static const void *const *collision_bsp = nullptr;
-    // Which structure BSP is loaded
+    // Which structure BSP is loaded, and its tag data
     static const std::int16_t *structure_bsp_index_global = nullptr;
+    static const std::byte *const *structure_bsp = nullptr;
+
+    // The dynamic lights gathered for the window being drawn, and how many
+    static const std::int32_t *light_count = nullptr;
+    static const RenderedLight *light_list = nullptr;
+    #define MOST_RENDERED_LIGHTS 128
 
     struct TagDataHeader {
         Tag *tag_array;
@@ -185,6 +192,18 @@ namespace Buh {
             std::memcpy(&hit.object, result + COLLISION_RESULT_OBJECT, sizeof(hit.object));
         }
         return true;
+    }
+
+    const std::byte *level_structure_bsp() noexcept {
+        return structure_bsp ? *structure_bsp : nullptr;
+    }
+
+    std::size_t rendered_lights(const RenderedLight *&lights) noexcept {
+        if(!light_count || !light_list) {
+            return 0;
+        }
+        lights = light_list;
+        return static_cast<std::size_t>(std::clamp(*light_count, 0, MOST_RENDERED_LIGHTS));
     }
 
     bool in_tag_space(const void *pointer) noexcept {
@@ -359,6 +378,17 @@ namespace Buh {
         if(auto *clip = find_signature({ 0x8B, 0x15, -1, -1, -1, -1, 0xA1, -1, -1, -1, -1, 0x52, 0x50, 0xE8 })) {
             first_person_far = read_address<const float>(clip + 2);
             first_person_near = read_address<const float>(clip + 7);
+        }
+        // scenario_switch_structure_bsp keeping the loaded structure BSP, then its collision geometry twice:
+        // mov [structure bsp], eax; mov eax, [eax + 0xB4]; mov [collision bsp], eax; mov [bsp3d], eax
+        if(auto *loaded = find_signature({ 0xA3, -1, -1, -1, -1, 0x8B, 0x80, 0xB4, 0x00, 0x00, 0x00, 0xA3, -1, -1, -1, -1, 0xA3 })) {
+            structure_bsp = read_address<const std::byte *const>(loaded + 1);
+        }
+        // rasterizer_light_submit, inlined where Halo gathers the frame's lights: mov eax, [count]; or ebx, -1;
+        // cmp eax, 128; jge; mov ebx, eax; mov edi, ebx; imul edi, edi, 0x38; inc eax; add edi, lights
+        if(auto *submit = find_signature({ 0xA1, -1, -1, -1, -1, 0x83, 0xCB, 0xFF, 0x3D, 0x80, 0x00, 0x00, 0x00, 0x7D, -1, 0x8B, 0xD8, 0x8B, 0xFB, 0x6B, 0xFF, 0x38, 0x40, 0x81, 0xC7 })) {
+            light_count = read_address<const std::int32_t>(submit + 1);
+            light_list = read_address<const RenderedLight>(submit + 25);
         }
     }
 

@@ -29,6 +29,7 @@
 #include "post/post.hpp"
 #include "post/shafts.hpp"
 #include "post/smaa.hpp"
+#include "post/volumetric_light.hpp"
 #include "render.hpp"
 #include "sound/sound_length.hpp"
 #include "sound/subtitles.hpp"
@@ -66,13 +67,14 @@ extern "C" BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID) {
 
         // Drawn in the world before the HUD in this order: ambient occlusion on the opaque world, before its
         // transparent surfaces; then shapes, and the post processes over them, the bloom working from the
-        // anti-aliased, shafted and blurred world and graded with it; then the depth view over all of it
+        // anti-aliased, shafted, lit and blurred world and graded with it; then the depth view over all of it
         Buh::set_up_post();
         Buh::set_up_depth();
         Buh::set_up_ao();
         Buh::set_up_shapes();
         Buh::set_up_smaa();
         Buh::set_up_shafts();
+        Buh::set_up_volumetric_light();
         Buh::set_up_motion_blur();
         Buh::set_up_bloom();
         Buh::set_up_grading();

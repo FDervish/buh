@@ -100,6 +100,33 @@ namespace Buh {
      */
     bool collision_test(std::uint32_t flags, const float (&origin)[3], const float (&delta)[3], std::uint32_t ignore, CollisionHit &hit) noexcept;
 
+    /**
+     * The loaded structure BSP's tag data (scenario_structure_bsp), its collision materials and collision geometry
+     * among it. nullptr between maps, or if buh couldn't find where Halo keeps it.
+     */
+    const std::byte *level_structure_bsp() noexcept;
+
+    /**
+     * A dynamic light Halo's renderer was given for the window it's drawing (rasterizer_light_submit's parameters): the
+     * light tag's data, where it is and which way it points, its colour now (0 to 1) and its radius
+     */
+    struct RenderedLight {
+        const std::byte *definition;
+        float position[3];
+        float forward[3];
+        float up[3];
+        float color[3];
+        float radius;
+    };
+    static_assert(sizeof(RenderedLight) == 0x38);
+
+    /**
+     * The dynamic lights Halo gathered for the window it's drawing, during a world draw: the flashlight, muzzle flashes,
+     * glowing projectiles, explosions and the like
+     * @return how many there are (at most 128), 0 if buh couldn't find them
+     */
+    std::size_t rendered_lights(const RenderedLight *&lights) noexcept;
+
     #define TAG_CLASS_BITMAP 0x6269746D
     #define TAG_CLASS_DAMAGE_EFFECT 0x6A707421
     #define TAG_CLASS_FONT 0x666F6E74
