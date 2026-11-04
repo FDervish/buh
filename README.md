@@ -433,9 +433,9 @@ needs pixel shader 3.0 and volume textures.
 
 ## The world's depth
 
-Ambient occlusion and sun shafts work from the world's depth. Halo's depth buffer can't be read, so while one of them is
-on, Halo draws into one that can be (an INTZ depth texture) in its place; once none is on, Halo's own goes back. It
-needs a card that reads INTZ depth textures, and no multisampling forced on in the driver.
+Ambient occlusion, sun shafts and motion blur work from the world's depth. Halo's depth buffer can't be read, so while
+one of them is on, Halo draws into one that can be (an INTZ depth texture) in its place; once none is on, Halo's own
+goes back. It needs a card that reads INTZ depth textures, and no multisampling forced on in the driver.
 
 - `buh_depth_view [true|false]`: show what buh reads in place of the world. Near is white fading to black, the sky
   blue and first person things red. If it looks like that in game, the depth effects have what they need. If the
@@ -469,6 +469,25 @@ by default.
 - `buh_sun_shafts_intensity [amount]` (0 to 4, 1 by default)
 - `buh_sun_shafts_length [amount]` (0 to 1, 0.75 by default): how far toward the sun they reach.
 - `buh_sun_shafts_direction [<yaw> <pitch>|map]`: where the sun is, in degrees, or the map's.
+
+## Motion blur
+
+`buh_motion_blur [true|false]` blurs the world as things move: as the camera turns and moves, as Reach's does, and for
+whatever moves by itself. Once Halo has drawn the opaque world, buh works out how far each pixel moved: for the
+camera, from the world's depth, and for each model, by drawing each part that moved again with this frame's bones and
+the last's (noted as Halo drew it). So models blur exactly, animation and all, and a vehicle the camera keeps up with
+stays sharp. Before the HUD, McGuire's reconstruction filter blurs along that motion, so moving things blur over what's
+behind them and still ones in front stay sharp, the first person weapon included. It's scaled to a shutter time, so it
+looks the same at any frame rate, and a frame where the camera jumps isn't blurred. Off by default.
+
+- `buh_motion_blur_amount [amount]` (0 to 1, 0.5 by default): the shutter, as a fraction of a frame at 30 frames a
+  second.
+- `buh_motion_blur_objects [true|false]` (true by default): blur models for their own motion too.
+- `buh_motion_view [true|false]`: show the motion in place of the world: gray for still, more or less red for moving
+  right or left, more or less green for moving down or up, and bluish for models moving by themselves.
+
+Models' own motion needs vertex shader 3.0 that can read float textures; without it the blur is the camera's alone. If
+the motion can't be worked out for a second or so, the console says why, once.
 
 ## Models
 

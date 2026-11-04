@@ -34,6 +34,18 @@ namespace Buh {
     const std::byte *object_datum(std::uint32_t object) noexcept;
 
     /**
+     * Whether Halo's rasterizer is drawing a model now (between rasterizer_model_begin and its end), and the
+     * identifier it was given, the object's index
+     */
+    bool drawing_model(std::uint32_t &identifier) noexcept;
+
+    /**
+     * Whether the model being drawn is first person (the weapon and arms). Halo draws those with near and far clip
+     * distances of their own, and marks them 1 in the stencil buffer, so the world drawn after them doesn't cover them.
+     */
+    bool drawing_first_person_model() noexcept;
+
+    /**
      * The near and far clip distances Halo draws first person models with, for its projection rebuilt for them
      * @return false if buh couldn't find them
      */

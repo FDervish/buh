@@ -85,6 +85,8 @@ add_library(buh MODULE
     src/post/bloom.cpp
     src/post/depth.cpp
     src/post/grading.cpp
+    src/post/model_motion.cpp
+    src/post/motion_blur.cpp
     src/post/post.cpp
     src/post/shafts.cpp
     src/post/smaa.cpp

@@ -39,6 +39,16 @@ namespace Buh {
     static const std::int16_t *server_type = nullptr;
     static const std::byte *const *object_table = nullptr;
 
+    // rasterizer_model_begin's parameters while a model is drawn, null otherwise: its geometry flags, then the
+    // identifier it was given
+    static const std::byte *const *model_parameters = nullptr;
+    #define MODEL_PARAMETERS_IDENTIFIER 0x4
+
+    // The parameters' first byte, whose top bit is first person: rasterizer_model_begin() then sets the projection's
+    // near and far to the first person ones, and stencil mode 1 (always, replacing with 1)
+    #define MODEL_PARAMETERS_FLAGS 0x0
+    #define MODEL_FLAG_FIRST_PERSON 0x80
+
     // The near and far clip distances first person models are drawn with
     static const float *first_person_near = nullptr;
     static const float *first_person_far = nullptr;
@@ -339,12 +349,30 @@ namespace Buh {
         if(server) {
             server_type = read_address<const std::int16_t>(server + 3);
         }
+        // rasterizer_model_begin keeping its parameters for the model's drawing: mov [parameters], esi; then
+        // mov byte [...], 0; mov [...], cl
+        if(auto *model_begin = find_signature({ 0x89, 0x35, -1, -1, -1, -1, 0xC6, 0x05, -1, -1, -1, -1, 0x00, 0x88, 0x0D })) {
+            model_parameters = read_address<const std::byte *const>(model_begin + 2);
+        }
         // The first person clip distances, pushed for the projection to be rebuilt with: mov edx, [far];
         // mov eax, [near]; push edx; push eax; call
         if(auto *clip = find_signature({ 0x8B, 0x15, -1, -1, -1, -1, 0xA1, -1, -1, -1, -1, 0x52, 0x50, 0xE8 })) {
             first_person_far = read_address<const float>(clip + 2);
             first_person_near = read_address<const float>(clip + 7);
         }
+    }
+
+    bool drawing_model(std::uint32_t &identifier) noexcept {
+        if(!model_parameters || !*model_parameters) {
+            return false;
+        }
+        std::memcpy(&identifier, *model_parameters + MODEL_PARAMETERS_IDENTIFIER, sizeof(identifier));
+        return true;
+    }
+
+    bool drawing_first_person_model() noexcept {
+        return model_parameters && *model_parameters
+            && (std::to_integer<std::uint8_t>((*model_parameters)[MODEL_PARAMETERS_FLAGS]) & MODEL_FLAG_FIRST_PERSON) != 0;
     }
 
     bool first_person_clip(float &near_distance, float &far_distance) noexcept {
