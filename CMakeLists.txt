@@ -86,6 +86,7 @@ add_library(buh MODULE
     src/post/depth.cpp
     src/post/grading.cpp
     src/post/post.cpp
+    src/post/shafts.cpp
     src/post/smaa.cpp
     src/post/smaa.rc
     src/render.cpp

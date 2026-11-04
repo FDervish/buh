@@ -433,9 +433,9 @@ needs pixel shader 3.0 and volume textures.
 
 ## The world's depth
 
-Ambient occlusion works from the world's depth. Halo's depth buffer can't be read, so while it's on, Halo draws into one
-that can be (an INTZ depth texture) in its place; once it's off, Halo's own goes back. It needs a card that reads INTZ
-depth textures, and no multisampling forced on in the driver.
+Ambient occlusion and sun shafts work from the world's depth. Halo's depth buffer can't be read, so while one of them is
+on, Halo draws into one that can be (an INTZ depth texture) in its place; once none is on, Halo's own goes back. It
+needs a card that reads INTZ depth textures, and no multisampling forced on in the driver.
 
 - `buh_depth_view [true|false]`: show what buh reads in place of the world. Near is white fading to black, the sky
   blue and first person things red. If it looks like that in game, the depth effects have what they need. If the
@@ -458,6 +458,17 @@ world. The sky and bright pixels aren't darkened. Off by default.
 - `buh_ao_radius [world units]` (0.05 to 2, 0.25 by default)
 - `buh_ao_intensity [amount]` (0 to 4, 1 by default)
 - `buh_ao_bias [degrees]` (0 to 60, 15 by default): raise it if the creases between triangles still show
+
+## Sun shafts
+
+`buh_sun_shafts [true|false]` streaks sunlight out from the sun where something stands in front of it. The sun is the
+map's: the brightest light of its first sky, where Halo puts the sun's lens flare, and the shafts take its colour.
+The sky around the sun is blurred out from it at half size, then screen blended over the world before the bloom. Off
+by default.
+
+- `buh_sun_shafts_intensity [amount]` (0 to 4, 1 by default)
+- `buh_sun_shafts_length [amount]` (0 to 1, 0.75 by default): how far toward the sun they reach.
+- `buh_sun_shafts_direction [<yaw> <pitch>|map]`: where the sun is, in degrees, or the map's.
 
 ## Models
 
